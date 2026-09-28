@@ -28,13 +28,15 @@ async function repairHeader(file){
  var before=hex2(u8,12),fixed=new Uint8Array(u8);fixed[0]=0xFF;fixed[1]=0xD8;
  var after=hex2(fixed,12),blob=new Blob([fixed],{type:'image/jpeg'}),url=URL.createObjectURL(blob),result=document.getElementById('result');
  result.className='result';
- result.innerHTML='<div class="studentSummary"><h2>🩺 File Header Repair — V66 TEST</h2><div class="studentCard"><b>1️⃣ ماذا اكتشف صقر؟</b><p>الملف لا يبدأ بتوقيع JPEG الصحيح، لكن البنية التالية للهيدر تطابق JPEG بدرجة عالية.</p><p><strong>قبل:</strong> <code>'+esc(before)+'</code></p><p><strong>بعد الإصلاح الآمن:</strong> <code>'+esc(after)+'</code></p><div class="solvePath">Broken File → Header Inspection → JPEG Signature Mismatch → Repair FF D8</div></div><div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم تعديل أول بايتين فقط داخل نسخة مؤقتة في الذاكرة. الملف الأصلي لم يتغير.</p><img id="falconV63Image" src="'+url+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_header_repaired.jpg">💾 حفظ JPEG المستعاد</a></p></div><div class="studentCard"><b>3️⃣ Visual Evidence Hunter</b><div id="falconV63Ocr" class="finding">⏳ جارٍ قراءة النص الظاهر داخل الصورة...</div><div class="solvePath">JPEG Repair → Reconstruct → OCR → Flag</div></div></div>';
+ result.innerHTML='<div class="studentSummary"><h2>🩺 File Header Repair — V67 TEST</h2><div class="studentCard"><b>1️⃣ ماذا اكتشف صقر؟</b><p>الملف لا يبدأ بتوقيع JPEG الصحيح، لكن البنية التالية للهيدر تطابق JPEG بدرجة عالية.</p><p><strong>قبل:</strong> <code>'+esc(before)+'</code></p><p><strong>بعد الإصلاح الآمن:</strong> <code>'+esc(after)+'</code></p><div class="solvePath">Broken File → Header Inspection → JPEG Signature Mismatch → Repair FF D8</div></div><div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم تعديل أول بايتين فقط داخل نسخة مؤقتة في الذاكرة. الملف الأصلي لم يتغير.</p><img id="falconV63Image" src="'+url+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_header_repaired.jpg">💾 حفظ JPEG المستعاد</a></p></div><div class="studentCard"><b>3️⃣ Visual Evidence Hunter</b><div id="falconV63Ocr" class="finding">⏳ جارٍ قراءة النص الظاهر داخل الصورة...</div><div class="solvePath">JPEG Repair → Reconstruct → OCR → Flag</div></div></div>';
  setTimeout(async function(){
   var st=document.getElementById('falconV63Ocr');if(!st)return;
   try{
    for(var w=0;w<20&&typeof Tesseract==='undefined';w++)await new Promise(function(r){setTimeout(r,250);});
    if(typeof Tesseract==='undefined'){st.className='finding warn';st.innerHTML='⚠️ تم إصلاح JPEG، لكن OCR غير متاح.';return;}
-   var img=document.getElementById('falconV63Image');\n   if(img&&!img.complete)await new Promise(function(r){img.addEventListener('load',r,{once:true});});\n   var targets=[url];
+   var img=document.getElementById('falconV63Image');
+   if(img&&!img.complete)await new Promise(function(r){img.addEventListener('load',r,{once:true});});
+   var targets=[url];
    if(img&&img.naturalWidth){
     /* V64 visual pass: preserve the successful header repair and only improve OCR.
        Try full image + scaled/gray/threshold variants + top/bottom crops. */
