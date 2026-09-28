@@ -368,3 +368,4 @@ window.FalconRun=function(deep){
  return runText(ta?ta.value:'',!!deep,deep?'التحليل العميق':'التحليل السريع');
 };
 })();
+window.FalconDroppedFile=function(file){if(file)showSelectedFile(file);};
