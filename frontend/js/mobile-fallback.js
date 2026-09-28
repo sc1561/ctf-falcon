@@ -47,6 +47,14 @@ window.FalconSelfTest=function(){
  if(ta)ta.value=encoded;
  return runText(encoded,true,'اختبار المحرك');
 };
+window.FalconSmartRun=function(){
+ var ta=byId('text'),fi=byId('file'),result=byId('result'),raw=ta?ta.value:'';
+ if(fi&&fi.files&&fi.files.length&&!raw.trim()){
+  result.className='result';result.innerHTML='<div class="studentSummary"><h2>📂 تم استلام الملف</h2><div class="studentCard next"><b>🧠 التشخيص التلقائي</b><p>هذا تحدٍ يعتمد على ملف. سيحتاج إلى محرك تحليل الملفات المتخصص الذي سنختبره في المرحلة التالية.</p></div></div>';return false;
+ }
+ if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
+ return runText(raw,true,'المحلل الذكي');
+};
 window.FalconRun=function(deep){
  var ta=byId('text'),fi=byId('file'),result=byId('result');
  if(fi&&fi.files&&fi.files.length){
