@@ -252,12 +252,40 @@ async function analyzeEmbeddedContainer(u8,result){
   return true;
  }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في Digital Forensics: '+esc(e.message||e)+'</div>';return true;}
 }
+function analyzeLogs(raw,name,result){
+ var lines=(raw||'').split(/\r?\n/).filter(function(x){return x.trim();});if(lines.length<3)return false;
+ var ips={},codes={},bad=[],payloads=[],hits=[],i;
+ for(i=0;i<lines.length;i++){
+  var l=lines[i],im=l.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)||[],cm=l.match(/(?:HTTP\/\d(?:\.\d)?["']?\s+|status[=: ]+)([1-5]\d\d)/i);
+  for(var j=0;j<im.length;j++)ips[im[j]]=(ips[im[j]]||0)+1;
+  if(cm)codes[cm[1]]=(codes[cm[1]]||0)+1;
+  if(/failed|failure|denied|unauthorized|invalid|forbidden|error|attack|suspicious|blocked|admin|login/i.test(l))bad.push(l);
+  var fs=flags(l);for(j=0;j<fs.length;j++)hits.push({flag:fs[j],path:'Log line '+(i+1)});
+  var toks=l.match(/[A-Za-z0-9+\/_%=-]{16,}/g)||[];
+  for(j=0;j<toks.length;j++)payloads.push({v:toks[j],line:i+1});
+ }
+ var top=Object.keys(ips).map(function(k){return [k,ips[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,6);
+ for(i=0;i<payloads.length;i++){
+  var q=[{v:payloads[i].v,p:'Log line '+payloads[i].line,d:0}],seen={};seen[payloads[i].v]=1;
+  while(q.length){var x=q.shift(),ff=flags(x.v);for(var z=0;z<ff.length;z++)hits.push({flag:ff[z],path:x.p});
+   if(x.d>=6)continue;var cs=candidates(x.v);cs.sort(function(a,b){return quality(b[1])-quality(a[1]);});
+   for(var k=0;k<cs.length;k++){var v=cs[k][1];if(v&&v.length<50000&&!seen[v]){seen[v]=1;q.push({v:v,p:x.p+' → '+cs[k][0],d:x.d+1});}}
+  }
+ }
+ var html='<div class="studentSummary"><h2>'+(hits.length?'🎉 تم حل تحدي Log & Incident Analysis':'📜 Log & Incident Analysis')+'</h2><div class="studentCard"><b>1️⃣ ملخص السجل</b><p>تم تحليل <strong>'+lines.length+'</strong> حدثًا. الأحداث ذات مؤشرات الخطأ/الدخول المشبوه: <strong>'+bad.length+'</strong>.</p>';
+ if(top.length)html+='<p>أكثر عناوين IP ظهورًا: <strong>'+esc(top.map(function(x){return x[0]+' ('+x[1]+')';}).join('، '))+'</strong></p>';
+ var ck=Object.keys(codes);if(ck.length)html+='<p>HTTP Status: <strong>'+esc(ck.map(function(k){return k+': '+codes[k];}).join('، '))+'</strong></p>';
+ html+='<div class="solvePath">Logs → IOC Scan → Suspicious Events → Encoded Payloads → Flag Hunter</div></div>';
+ if(hits.length){var uniq={};html+='<div class="studentCard success"><b>2️⃣ العلم المرشح 🚩</b>';for(i=0;i<hits.length;i++)if(!uniq[hits[i].flag]){uniq[hits[i].flag]=1;html+='<div class="solvePath">'+esc(hits[i].path)+'</div><div class="flag">'+esc(hits[i].flag)+'</div>';}html+='</div><div class="studentCard"><b>3️⃣ ماذا فعل صقر؟</b><p>حلّل السجل، استخرج مؤشرات الشبكة ومحاولات الدخول، ثم فحص السلاسل المشفرة حتى 6 طبقات.</p></div>';}
+ else html+='<div class="studentCard next"><b>2️⃣ النتيجة</b><p>لم يظهر Flag واضح. راجع الأحداث المشبوهة وعناوين IP الأعلى نشاطًا، أو استخدم ملف سجل يحتوي دليلًا إضافيًا.</p></div>';
+ result.innerHTML=html+'</div>';return true;
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(lower.endsWith('.log')||lower.endsWith('.txt')||lower.endsWith('.csv')||/failed password|unauthorized|HTTP\\/1\\.[01]|status[=: ]+[1-5]\\d\\d/i.test(raw)){if(analyzeLogs(raw,name,result))return;} if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
