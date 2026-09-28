@@ -21,7 +21,17 @@ function analyzeText(raw,deep,source){
   for(var i=0;i<cs.length;i++){var n=cs[i][1],p=x.p+' → '+cs[i][0];if(!seen[n]&&n.length<100000){seen[n]=1;var sc=quality(n);rows.push({path:p,value:n,score:sc,depth:x.d+1});if(sc>best.score)best={score:sc,path:p,value:n};var ff=flags(n);for(var k=0;k<ff.length;k++)found.push({flag:ff[k],path:p});queue.push({v:n,p:p,d:x.d+1});count++;}}
  }
  rows.sort(function(a,b){return b.score-a.score||a.depth-b.depth;});
- var unique=[],u={},flagPaths={};for(var q=0;q<found.length;q++)if(!u[found[q].flag]){u[found[q].flag]=1;unique.push(found[q].flag);flagPaths[found[q].flag]=found[q].path;}
+ /* Prefer the deepest decoded occurrence of a candidate flag. A flag-shaped
+   intermediate value (for example before ROT13) must not stop Challenge Brain. */
+ var bestFlags={},q;
+ for(q=0;q<found.length;q++){
+  var fp=found[q].path||root,depth=(fp.match(/ → /g)||[]).length,key=found[q].flag;
+  if(!bestFlags[key]||depth>bestFlags[key].depth)bestFlags[key]={flag:key,path:fp,depth:depth};
+ }
+ var ranked=Object.keys(bestFlags).map(function(k){return bestFlags[k];});
+ ranked.sort(function(a,b){return b.depth-a.depth;});
+ var maxDepth=ranked.length?ranked[0].depth:-1,unique=[],flagPaths={};
+ for(q=0;q<ranked.length;q++){if(ranked[q].depth<maxDepth)continue;unique.push(ranked[q].flag);flagPaths[ranked[q].flag]=ranked[q].path;}
  var detected=[];var names=['Base64','Hex','Binary','URL Decode','ROT13','Morse','Caesar'];for(var ni=0;ni<names.length;ni++){for(var di=0;di<rows.length;di++)if(rows[di].path.indexOf(names[ni])>=0){detected.push(names[ni]);break;}}
  var html='<div class="studentSummary"><h2>'+(unique.length?'🎉 تم العثور على علم محتمل':'🧭 نتيجة التحليل')+'</h2>';
  html+='<div class="studentCard"><b>1️⃣ ما نوع التحدي؟</b><p>'+(detected.length?'يبدو أنه تحدي ترميز/تشفير نصي متعدد المراحل.':'لم يتضح نوع الترميز تلقائيًا بعد.')+'</p></div>';
