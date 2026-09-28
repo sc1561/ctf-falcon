@@ -164,26 +164,39 @@ function analyzePngLSB(file,u8,result){
     try{
      var cv=document.createElement('canvas');cv.width=img.naturalWidth;cv.height=img.naturalHeight;
      var cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0);
-     var px=cx.getImageData(0,0,cv.width,cv.height).data,channels=[0,1,2],bits=[],bytes=[],found=[],paths=[];
-     for(var ci=0;ci<channels.length;ci++){
-      bits=[];bytes=[];var ch=channels[ci];
-      for(var i=ch;i<px.length;i+=4)bits.push(px[i]&1);
+     var px=cx.getImageData(0,0,cv.width,cv.height).data,streams=[];
+     function addStream(label,mode){
+      var bits=[],bytes=[];
+      if(mode==='rgb'){for(var p=0;p<px.length;p+=4)bits.push(px[p]&1,px[p+1]&1,px[p+2]&1);}
+      else{for(var i=mode;i<px.length;i+=4)bits.push(px[i]&1);}
       for(var b=0;b+7<bits.length;b+=8){var v=0;for(var k=0;k<8;k++)v=(v<<1)|bits[b+k];bytes.push(v);}
-      var s=bytesText(new Uint8Array(bytes)),ff=flags(s);
-      for(var q=0;q<ff.length;q++)found.push(ff[q]);
-      if(ff.length)paths.push(['RGB'[ch]+' channel LSB',ff[0]]);
+      streams.push({label:label,text:bytesText(new Uint8Array(bytes))});
      }
-     /* Also test interleaved RGB LSB, common in beginner CTF stego. */
-     bits=[];bytes=[];
-     for(var p=0;p<px.length;p+=4){bits.push(px[p]&1,px[p+1]&1,px[p+2]&1);}
-     for(var j=0;j+7<bits.length;j+=8){var vv=0;for(var z=0;z<8;z++)vv=(vv<<1)|bits[j+z];bytes.push(vv);}
-     var all=bytesText(new Uint8Array(bytes)),af=flags(all);for(var a=0;a<af.length;a++)found.push(af[a]);if(af.length)paths.push(['RGB interleaved LSB',af[0]]);
-     found=found.filter(function(x,i,a){return a.indexOf(x)===i;});
-     if(found.length){
-      var html='<div class="studentSummary"><h2>🕵️ تحليل LSB Steganography</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PNG / Pixel Steganography</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>لم يعتمد على النص أو metadata. تم فك أقل بت <strong>LSB</strong> من قنوات ألوان البكسلات والبحث عن صيغة العلم.</p><div class="solvePath">PNG → Pixels → RGB Channels → LSB Bits → Bytes → Flag Hunter</div></div><div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';
-      for(var x=0;x<found.length;x++)html+='<div class="flag">'+esc(found[x])+'</div>';
-      html+='<p>المسار المكتشف: <strong>'+esc(paths[0][0])+'</strong></p></div></div>';result.innerHTML=html;URL.revokeObjectURL(url);resolve(true);
-     }else{URL.revokeObjectURL(url);resolve(false);}
+     addStream('R channel LSB',0);addStream('G channel LSB',1);addStream('B channel LSB',2);addStream('RGB interleaved LSB','rgb');
+     var direct=[];
+     for(var si=0;si<streams.length;si++){var ff=flags(streams[si].text);for(var q=0;q<ff.length;q++)direct.push({flag:ff[q],path:streams[si].label});}
+     if(direct.length){
+      var seen={},html='<div class="studentSummary"><h2>🕵️ تحليل LSB Steganography</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PNG / Pixel Steganography</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>فحص النظام قنوات R وG وB وكذلك RGB المتداخل.</p><div class="solvePath">PNG → Pixels → LSB Bits → Bytes → Flag Hunter</div></div><div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';
+      for(var di=0;di<direct.length;di++)if(!seen[direct[di].flag]){seen[direct[di].flag]=1;html+='<div class="flag">'+esc(direct[di].flag)+'</div><p>المسار: <strong>'+esc(direct[di].path)+'</strong></p>';}
+      result.innerHTML=html+'</div></div>';URL.revokeObjectURL(url);resolve(true);return;
+     }
+     /* No direct flag: send plausible LSB byte streams into the same chained decoder. */
+     var best=null;
+     for(var s=0;s<streams.length;s++){
+      var t=streams[s].text.split('\x00')[0].trim();
+      if(t.length<8)continue;
+      var sc=quality(t);
+      if(/^[A-Za-z0-9+\/=\s]+$/.test(t)&&t.replace(/\s/g,'').length%4===0)sc+=120;
+      if(/^(?:[0-9a-f]{2}\s*){4,}$/i.test(t))sc+=100;
+      if(!best||sc>best.score)best={label:streams[s].label,text:t,score:sc};
+     }
+     if(best){
+      result.innerHTML='<div class="studentSummary"><h2>🧠 Challenge Brain</h2><div class="studentCard"><b>1️⃣ تم فك LSB</b><p>لم يظهر Flag مباشر، لكن تم استخراج بيانات قابلة للتحليل من <strong>'+esc(best.label)+'</strong>.</p></div><div class="studentCard next"><b>2️⃣ متابعة تلقائية</b><p>سيتم إرسال ناتج LSB إلى Smart Decoder بدل التوقف هنا.</p><div class="solvePath">PNG → LSB → Bytes → Encoded Data → Smart Decoder</div></div></div>';
+      URL.revokeObjectURL(url);
+      setTimeout(function(){analyzeText(best.text,true,'LSB '+best.label);},120);
+      resolve(true);return;
+     }
+     URL.revokeObjectURL(url);resolve(false);
     }catch(e){URL.revokeObjectURL(url);resolve(false);}
    };img.src=url;
   }catch(e){resolve(false);}
