@@ -31,6 +31,7 @@ if(solveBtn) solveBtn.addEventListener('click',e=>{
  if(typeof window.FalconSmartRun==='function') return window.FalconSmartRun();
  return run(solveBtn,true);
 });
+const selfTest=$('#selfTest');if(selfTest)selfTest.addEventListener('click',()=>{if(typeof window.FalconSelfTest==='function')window.FalconSelfTest();else alert('المحرك الأساسي غير محمل. أعد تحميل الصفحة.');});
 const dlg=$('#aboutBox'),aboutBtn=$('#about'),closeBtn=$('#closeAbout');
 if(aboutBtn&&dlg) aboutBtn.addEventListener('click',()=>{
  try{ if(typeof dlg.showModal==='function') dlg.showModal(); else dlg.setAttribute('open',''); }
