@@ -14,7 +14,7 @@
  },true);
 });
 const $=s=>document.querySelector(s),file=$('#file'),text=$('#text'),go=$('#go'),deep=$('#deep'),result=$('#result'),drop=$('#drop');let last={bytes:null,sigs:[],type:'',flags:[],info:[]};
-file.onchange=()=>{if(file.files[0])drop.querySelector('b').textContent='✅ '+file.files[0].name};['dragover','drop'].forEach(e=>drop.addEventListener(e,x=>x.preventDefault()));drop.addEventListener('drop',e=>{file.files=e.dataTransfer.files;file.onchange()});
+file.onchange=()=>{if(file.files[0])drop.querySelector('b').textContent='✅ '+file.files[0].name};
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),uniq=a=>[...new Set(a)],hex=b=>[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
 function flags(s){let a=[],r=/(?:flag|ctf|moe)[_\- ]?\{[^\r\n{}]{1,200}\}/ig,m;while((m=r.exec(s||'')))a.push(m[0]);return uniq(a)}
 function printable(b){let o='',run='';for(let x of b){if(x>=32&&x<=126)run+=String.fromCharCode(x);else{if(run.length>=4)o+=run+'\n';run=''}}if(run.length>=4)o+=run;return o}
@@ -68,6 +68,7 @@ if(dropZone&&file){
   e.preventDefault();e.stopPropagation();dropZone.classList.remove('dragging');
   var files=e.dataTransfer&&e.dataTransfer.files;
   if(!files||!files.length)return;
+  window.__falconDroppedFile=files[0];
   try{var dt=new DataTransfer();dt.items.add(files[0]);file.files=dt.files;}catch(err){}
   if(typeof window.showSelectedFile==='function')window.showSelectedFile(files[0]);
   if(typeof window.FalconDroppedFile==='function')window.FalconDroppedFile(files[0]);
