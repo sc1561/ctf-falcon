@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, os, shutil, subprocess, tempfile
+import base64, json, os, re, shutil, subprocess, tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 HOST="127.0.0.1"; PORT=8765
@@ -20,7 +20,13 @@ class H(BaseHTTPRequestHandler):
  def do_POST(self):
   if self.path!="/steghide/extract": return reply(self,404,{"ok":False})
   n=int(self.headers.get("Content-Length","0")); raw=self.rfile.read(n)
-  try: data=json.loads(raw); src=Path(data["path"]).expanduser().resolve(); password=str(data["password"])
+  try:
+   data=json.loads(raw); password=str(data["password"])
+   if data.get("file_b64"):
+    blob=base64.b64decode(data["file_b64"],validate=True)
+    if len(blob)>25*1024*1024: return reply(self,413,{"ok":False,"error":"File too large"})
+    work=Path(tempfile.mkdtemp(prefix="falcon_")); src=work/Path(data.get("name","upload.jpg")).name; src.write_bytes(blob)
+   else: src=Path(data["path"]).expanduser().resolve()
   except Exception: return reply(self,400,{"ok":False,"error":"Invalid request"})
   if not src.is_file(): return reply(self,400,{"ok":False,"error":"File not found"})
   exe=shutil.which("steghide")
@@ -28,7 +34,15 @@ class H(BaseHTTPRequestHandler):
   out=Path(tempfile.mkdtemp(prefix="falcon_"))
   p=subprocess.run([exe,"extract","-sf",str(src),"-p",password,"-xf",str(out/"payload")],capture_output=True,text=True,timeout=30)
   target=out/"payload"
-  return reply(self,200 if p.returncode==0 else 422,{"ok":p.returncode==0,"output":str(target) if target.exists() else None,"message":(p.stdout+p.stderr)[-1500:]})
+  flag=None
+  if target.exists() and target.stat().st_size<=5*1024*1024:
+   try:
+    txt=target.read_bytes().decode("utf-8","ignore")
+    m=re.search(r"[A-Za-z][A-Za-z0-9_.:-]{1,30}\{[^{}\r\n]{2,200}\}",txt)
+    if m: flag=m.group(0)
+   except Exception: pass
+  payload_b64=base64.b64encode(target.read_bytes()).decode() if target.exists() and target.stat().st_size<=10*1024*1024 else None
+  return reply(self,200 if p.returncode==0 else 422,{"ok":p.returncode==0,"output_name":target.name if target.exists() else None,"payload_b64":payload_b64,"flag":flag,"message":(p.stdout+p.stderr)[-1500:]})
  def log_message(self,*a): pass
 if __name__=="__main__":
  print(f"Falcon Local Engine: http://{HOST}:{PORT}")
