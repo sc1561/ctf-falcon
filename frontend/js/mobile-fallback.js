@@ -424,15 +424,24 @@ function analyzePdfMetadata(u8,name,result){
   var xr=/<(?:dc:title|dc:creator|dc:description|pdf:Keywords|pdf:Producer|xmp:CreatorTool)[^>]*>([\s\S]*?)<\//gi,x;
   while((x=xr.exec(xmp[0]))!==null)add('XMP',x[1].replace(/<[^>]+>/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'),'XMP Metadata');
  }
- var found=[];
+ var found=[],decodedMeta=[];
  for(var i=0;i<fields.length;i++){
   var generic=fields[i].value.match(/[A-Za-z][A-Za-z0-9_.:-]{1,30}\{[^{}\r\n]{2,200}\}/g)||[];
   for(var j=0;j<generic.length;j++)if(found.indexOf(generic[j])<0)found.push(generic[j]);
+  var mv=fields[i].value.trim();
+  if(/^[A-Za-z0-9+/=]{12,}$/.test(mv)&&mv.length%4===0){
+   var md=b64(mv);
+   if(md){
+    decodedMeta.push({key:fields[i].key,value:md});
+    var mf=md.match(/[A-Za-z][A-Za-z0-9_.:-]{1,30}\{[^{}\r\n]{2,200}\}/g)||[];
+    for(var mj=0;mj<mf.length;mj++)if(found.indexOf(mf[mj])<0)found.push(mf[mj]);
+   }
+  }
  }
  var html='<div class="studentSummary"><h2>📄 PDF Forensics Analyzer</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PDF / Metadata Forensics</p><div class="solvePath">PDF → Info Dictionary / XMP → Metadata → Flag Hunter</div></div>';
  html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر؟</b><p>تم فحص Metadata داخل الملف محليًا، والعثور على <strong>'+fields.length+'</strong> حقلًا قابلًا للقراءة.</p>';
  if(fields.length){html+='<details><summary>عرض الحقول المستخرجة</summary>';for(var q=0;q<fields.length;q++)html+='<p><strong>'+esc(fields[q].key)+':</strong> <code>'+esc(fields[q].value.slice(0,500))+'</code></p>';html+='</details>';}html+='</div>';
- if(found.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var z=0;z<found.length;z++)html+='<div class="flag">'+esc(found[z])+'</div><div class="solvePath">PDF → Metadata → '+esc(found[z])+'</div>';html+='</div>';}
+ if(found.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var z=0;z<found.length;z++)html+='<div class="flag">'+esc(found[z])+'</div>';html+='<div class="solvePath">'+(decodedMeta.length?'PDF → Metadata → Base64 → Flag':'PDF → Metadata → Flag')+'</div></div>';}
  else{html+='<div class="studentCard next"><b>3️⃣ Smart Rescue Mode</b><p>لم تظهر صيغة Flag واضحة في الحقول القياسية. افحص Metadata يدويًا باستخدام <code>exiftool '+esc(name)+'</code> أو خصائص المستند، وركّز على Title وAuthor وSubject وKeywords وCreator.</p><p><a href="https://www.metadata2go.com/" target="_blank" rel="noopener noreferrer">🌐 Metadata2Go — فحص Metadata خارجي</a></p><small>⚠️ الموقع الخارجي يتطلب رفع الملف؛ استخدمه فقط مع ملفات CTF التدريبية المصرح بها.</small></div>';}
  result.innerHTML=html+'</div>';return true;
 }
