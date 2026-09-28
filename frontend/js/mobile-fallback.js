@@ -520,7 +520,8 @@ function analyzeFile(file){
 }
 window.FalconSmartRun=function(){
  var ta=byId('text'),fi=byId('file'),result=byId('result'),raw=ta?ta.value:'';
- if(fi&&fi.files&&fi.files.length&&!raw.trim()){return analyzeFile(fi.files[0]);}
+ var chosen=(fi&&fi.files&&fi.files.length)?fi.files[0]:window.__falconDroppedFile;
+ if(chosen&&!raw.trim()){return analyzeFile(chosen);}
  if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
  if(looksLikeLog(raw)){result.className='result';return analyzeLogs(raw,'pasted-log',result);} return runText(raw,true,'المحلل الذكي');
 };
