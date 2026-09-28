@@ -408,7 +408,23 @@ function analyzeBinaryDigitFile(raw,name,result){
  }
  return true;
 }
-function analyzeJpegMetadata(u8,name,result){
+async function falconLocalSteghide(file,password,result){
+ try{
+  var health=await fetch('http://127.0.0.1:8765/health',{cache:'no-store'});
+  var hs=await health.json(); if(!hs.ok||!hs.steghide)return false;
+  var ab=await file.arrayBuffer(),bytes=new Uint8Array(ab),bin='',step=0x8000;
+  for(var i=0;i<bytes.length;i+=step)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+step));
+  var res=await fetch('http://127.0.0.1:8765/steghide/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:file.name,password:password,file_b64:btoa(bin)})});
+  var data=await res.json();
+  if(!data.ok){result.innerHTML+='<div class="studentCard next"><b>🟠 Local Engine</b><p>'+esc(data.error||data.message||'تعذر استخراج الحمولة')+'</p></div>';return true;}
+  var h='<div class="studentCard success"><b>🟢 Falcon Local Engine — Connected</b><p>تم استخراج الـ Hidden Payload محليًا.</p>';
+  if(data.output_name)h+='<p><strong>الملف المستخرج:</strong> <code>'+esc(data.output_name)+'</code></p>';
+  if(data.flag)h+='<p><strong>🚩 Flag:</strong></p><div class="flag">'+esc(data.flag)+'</div><div class="solvePath">JPEG → Metadata → Base64 → Steghide → Payload → Flag</div>';
+  else h+='<p>تم الاستخراج، لكن لم يظهر Flag نصي مباشر في الـpayload.</p>';
+  h+='</div>'; result.innerHTML+=h; return true;
+ }catch(e){return false;}
+}
+async function analyzeJpegMetadata(u8,name,result,file){
  if(u8.length<4||u8[0]!==255||u8[1]!==216||u8[2]!==255)return false;
  var p=2,items=[],seen={};
  function add(k,v){v=String(v||'').replace(/\x00+/g,'').trim();if(!v)return;var sk=k+'|'+v;if(!seen[sk]){seen[sk]=1;items.push({key:k,value:v});}}
@@ -436,7 +452,9 @@ function analyzeJpegMetadata(u8,name,result){
  if(found.length){h+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var a=0;a<found.length;a++)h+='<div class="flag">'+esc(found[a])+'</div>';h+='<div class="solvePath">JPEG → Metadata → Decode → Flag</div></div>';}
  else if(pass){h+='<div class="studentCard next"><b>3️⃣ اكتشاف حمولة Steghide 🔐</b><p>تم فك تلميح Metadata تلقائيًا.</p><p><strong>كلمة المرور:</strong> <code>'+esc(pass)+'</code></p><div class="solvePath">JPEG → Metadata → Base64 → Steghide Password → Hidden Payload</div><p>نفّذ: <code>steghide extract -sf '+esc(name)+' -p '+esc(pass)+'</code></p><p>ثم ارفع الملف المستخرج إلى صقر ليكمل التحليل.</p></div>';}
  else{h+='<div class="studentCard next"><b>3️⃣ Smart Rescue Mode</b><p>لم يظهر علم مباشر. جرّب <code>exiftool '+esc(name)+'</code> و <code>steghide info '+esc(name)+'</code>.</p></div>';}
- result.innerHTML=h+'</div>';return true;
+ result.innerHTML=h+'</div>';
+ if(pass&&file){await falconLocalSteghide(file,pass,result);}
+ return true;
 }
 function pdfUnescape(v){
  return String(v||'').replace(/\\([nrtbf()\\])/g,function(_,c){return c==='n'?'\n':c==='r'?'\r':c==='t'?'\t':c==='b'?'\b':c==='f'?'\f':c;}).replace(/\\([0-7]{1,3})/g,function(_,o){return String.fromCharCode(parseInt(o,8));});
@@ -480,7 +498,7 @@ function analyzeFile(file){
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(analyzeJpegMetadata(u8,name,result))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(await analyzeJpegMetadata(u8,name,result,file))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
