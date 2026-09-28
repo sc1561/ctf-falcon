@@ -218,26 +218,39 @@ async function analyzeEmbeddedContainer(u8,result){
   var sig=[0x50,0x4b,0x03,0x04],off=-1;
   for(var i=0;i<=u8.length-sig.length;i++){var ok=true;for(var j=0;j<sig.length;j++)if(u8[i+j]!==sig[j]){ok=false;break;}if(ok){off=i;break;}}
   if(off<0)return false;
-  var zip=u8.slice(off);
-  result.innerHTML='<div class="studentSummary"><h2>🧬 Digital Forensics</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Binary / Embedded File</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>اكتشف توقيع <strong>ZIP</strong> مضمّنًا داخل الملف عند offset <strong>'+off+'</strong>.</p><div class="solvePath">Binary → Signature Scan → Embedded ZIP</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>سيتم فحص محتويات ZIP داخل المتصفح والبحث عن أدلة أو بيانات مرمزة.</p></div></div>';
-  if(typeof DecompressionStream==='undefined')return true;
-  /* Parse local ZIP entries; support stored and deflate entries using browser DecompressionStream. */
-  var p=0,entries=[];
-  while(p+30<=zip.length&&zip[p]===0x50&&zip[p+1]===0x4b&&zip[p+2]===0x03&&zip[p+3]===0x04){
-   var method=zip[p+8]|(zip[p+9]<<8),cs=(zip[p+18]|zip[p+19]<<8|zip[p+20]<<16|zip[p+21]<<24)>>>0;
-   var nl=zip[p+26]|zip[p+27]<<8,el=zip[p+28]|zip[p+29]<<8;
-   var name=bytesText(zip.slice(p+30,p+30+nl)),ds=p+30+nl+el,de=ds+cs;
-   if(de>zip.length)break;var data=zip.slice(ds,de),out=data;
-   try{if(method===8){var stream=new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));out=new Uint8Array(await new Response(stream).arrayBuffer());}}
-   catch(e){}
-   entries.push({name:name,text:bytesText(out)});p=de;
+  var zipBytes=u8.slice(off);
+  result.innerHTML='<div class="studentSummary"><h2>🧬 Digital Forensics</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Binary / Embedded File</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>اكتشف توقيع <strong>ZIP</strong> مضمّنًا داخل الملف عند offset <strong>'+off+'</strong>.</p><div class="solvePath">Binary → Signature Scan → Embedded ZIP</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>جارٍ فك ZIP وفحص كل ملف داخله ثم متابعة سلاسل الترميز تلقائيًا.</p></div></div>';
+  if(typeof JSZip==='undefined'){result.innerHTML+='<div class="finding warn">⚠️ مكتبة ZIP لم تُحمّل. أعد تحميل الصفحة.</div>';return true;}
+  var zip=await JSZip.loadAsync(zipBytes),names=Object.keys(zip.files),entries=[];
+  for(var n=0;n<names.length;n++){
+   var zf=zip.files[names[n]];if(zf.dir)continue;
+   var data=await zf.async('uint8array'),txt=bytesText(data);
+   entries.push({name:zf.name,text:txt});
   }
-  var candidates=[],direct=[];
-  for(var e=0;e<entries.length;e++){var t=entries[e].text,ff=flags(t);for(var q=0;q<ff.length;q++)direct.push(ff[q]);if(t&&t.length>=8)candidates.push({name:entries[e].name,text:t,score:quality(t)});}
-  if(direct.length){result.innerHTML+='<div class="studentCard success"><b>🚩 العلم المرشح</b><div class="flag">'+esc(direct[0])+'</div></div>';return true;}
-  if(candidates.length){candidates.sort(function(a,b){return b.score-a.score||b.text.length-a.text.length;});var best=candidates[0];result.innerHTML+='<div class="studentCard next"><b>📦 تم استخراج '+entries.length+' ملفات</b><p>أفضل دليل: <strong>'+esc(best.name)+'</strong>. سيتم تمريره إلى Smart Decoder.</p><div class="solvePath">Embedded ZIP → '+esc(best.name)+' → Smart Decoder</div></div>';setTimeout(function(){analyzeText(best.text,true,'Binary → Embedded ZIP → '+best.name);},120);return true;}
+  var hits=[],best=null;
+  for(var e=0;e<entries.length;e++){
+   var entry=entries[e],queue=[{v:entry.text,p:'Binary → Embedded ZIP → '+entry.name,d:0}],seen={};seen[entry.text]=1;
+   while(queue.length){
+    var x=queue.shift(),ff=flags(x.v);
+    for(var q=0;q<ff.length;q++)hits.push({flag:ff[q],path:x.p});
+    var sc=quality(x.v);if(!best||sc>best.score)best={name:entry.name,text:x.v,path:x.p,score:sc};
+    if(x.d>=6)continue;
+    var cs=candidates(x.v);cs.sort(function(a,b){return quality(b[1])-quality(a[1]);});
+    for(var k=0;k<cs.length;k++){var v=cs[k][1];if(v&&v.length<100000&&!seen[v]){seen[v]=1;queue.push({v:v,p:x.p+' → '+cs[k][0],d:x.d+1});}}
+   }
+  }
+  var html='<div class="studentSummary"><h2>'+(hits.length?'🎉 تم حل تحدي Digital Forensics':'🧬 Digital Forensics')+'</h2><div class="studentCard"><b>1️⃣ المسار المكتشف</b><div class="solvePath">Binary → Embedded ZIP → '+entries.length+' file(s)</div><p>الملفات: '+esc(entries.map(function(x){return x.name;}).join('، '))+'</p></div>';
+  if(hits.length){
+   var uniq={};html+='<div class="studentCard success"><b>2️⃣ العلم المرشح 🚩</b>';
+   for(var h=0;h<hits.length;h++)if(!uniq[hits[h].flag]){uniq[hits[h].flag]=1;html+='<div class="solvePath">'+esc(hits[h].path)+'</div><div class="flag">'+esc(hits[h].flag)+'</div>';}
+   html+='</div><div class="studentCard"><b>3️⃣ ماذا فعل صقر؟</b><p>فك ZIP، وفحص جميع الملفات المستخرجة، ثم جرّب سلاسل Base64 / Hex / Binary / URL / ROT13 / Caesar / Morse حتى 6 طبقات.</p></div></div>';
+   result.innerHTML=html;return true;
+  }
+  html+='<div class="studentCard next"><b>2️⃣ لم يظهر Flag بعد</b><p>تم فحص جميع الملفات داخل ZIP وسلاسل الترميز المدعومة. أفضل مسار سيظهر في التحليل التالي.</p></div></div>';
+  result.innerHTML=html;
+  if(best)setTimeout(function(){analyzeText(best.text,true,best.path);},120);
   return true;
- }catch(e){return false;}
+ }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في Digital Forensics: '+esc(e.message||e)+'</div>';return true;}
 }
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
