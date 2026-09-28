@@ -47,11 +47,31 @@ window.FalconSelfTest=function(){
  if(ta)ta.value=encoded;
  return runText(encoded,true,'اختبار المحرك');
 };
+function bytesText(u8){var s='',chunk=8192;for(var i=0;i<u8.length;i+=chunk)s+=String.fromCharCode.apply(null,u8.subarray(i,Math.min(i+chunk,u8.length)));return s;}
+function pngEnd(u8){if(u8.length<12||u8[0]!==137||u8[1]!==80||u8[2]!==78||u8[3]!==71)return -1;var p=8;while(p+12<=u8.length){var len=((u8[p]<<24)>>>0)+(u8[p+1]<<16)+(u8[p+2]<<8)+u8[p+3],type=String.fromCharCode(u8[p+4],u8[p+5],u8[p+6],u8[p+7]),end=p+12+len;if(end>u8.length)return -1;if(type==='IEND')return end;p=end;}return -1;}
+function analyzeFile(file){
+ var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
+ var reader=new FileReader();
+ reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
+ reader.onload=function(){try{
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';
+  if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
+   var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText);
+   html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم التحقق من بنية الصورة حتى IEND.</p></div>';
+   if(extra.length){html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+extra.length+' بايت</strong> من البيانات بعد النهاية الطبيعية للصورة. هذا مؤشر مهم في تحديات Forensics/Steganography.</p></div>';
+    if(ef.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b><p>تم العثور على العلم داخل البيانات الملحقة بالصورة.</p>';for(var i=0;i<ef.length;i++)html+='<div class="flag">'+esc(ef[i])+'</div>';html+='</div>';}
+    else{html+='<div class="studentCard next"><b>3️⃣ الخطوة التالية</b><p>تم استخراج البيانات الملحقة وسيجرب عليها محرك فك الترميز تلقائيًا.</p></div></div>';result.innerHTML=html;analyzeText(extraText,true);return;}
+   }else html+='<div class="studentCard next"><b>2️⃣ النتيجة</b><p>لم توجد بيانات بعد IEND. سيحتاج الاختبار التالي إلى فحص metadata/chunks أو LSB.</p></div>';
+   html+='</div>';result.innerHTML=html;return;
+  }
+  html='<div class="studentSummary"><h2>📂 تحليل الملف</h2><div class="studentCard"><b>نوع الملف</b><p>'+esc(name)+'</p></div>';
+  if(allFlags.length){html+='<div class="studentCard success"><b>🚩 علم محتمل</b>';for(var j=0;j<allFlags.length;j++)html+='<div class="flag">'+esc(allFlags[j])+'</div>';html+='</div>';}else html+='<div class="studentCard next"><b>النتيجة</b><p>لم يظهر Flag نصي مباشر. ستضاف محللات متخصصة لهذا النوع ضمن اختباراتنا التالية.</p></div>';
+  result.innerHTML=html+'</div>';
+ }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في تحليل الملف: '+esc(e.message||e)+'</div>';}};reader.readAsArrayBuffer(file);return false;
+}
 window.FalconSmartRun=function(){
  var ta=byId('text'),fi=byId('file'),result=byId('result'),raw=ta?ta.value:'';
- if(fi&&fi.files&&fi.files.length&&!raw.trim()){
-  result.className='result';result.innerHTML='<div class="studentSummary"><h2>📂 تم استلام الملف</h2><div class="studentCard next"><b>🧠 التشخيص التلقائي</b><p>هذا تحدٍ يعتمد على ملف. سيحتاج إلى محرك تحليل الملفات المتخصص الذي سنختبره في المرحلة التالية.</p></div></div>';return false;
- }
+ if(fi&&fi.files&&fi.files.length&&!raw.trim()){return analyzeFile(fi.files[0]);}
  if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
  return runText(raw,true,'المحلل الذكي');
 };
