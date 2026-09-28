@@ -49,16 +49,31 @@ window.FalconSelfTest=function(){
 };
 function bytesText(u8){var s='',chunk=8192;for(var i=0;i<u8.length;i+=chunk)s+=String.fromCharCode.apply(null,u8.subarray(i,Math.min(i+chunk,u8.length)));return s;}
 function pngEnd(u8){if(u8.length<12||u8[0]!==137||u8[1]!==80||u8[2]!==78||u8[3]!==71)return -1;var p=8;while(p+12<=u8.length){var len=((u8[p]<<24)>>>0)+(u8[p+1]<<16)+(u8[p+2]<<8)+u8[p+3],type=String.fromCharCode(u8[p+4],u8[p+5],u8[p+6],u8[p+7]),end=p+12+len;if(end>u8.length)return -1;if(type==='IEND')return end;p=end;}return -1;}
+async function analyzeEmbeddedZip(extra,result){
+ if(!(extra.length>=4&&extra[0]===0x50&&extra[1]===0x4b&&(extra[2]===0x03||extra[2]===0x05||extra[2]===0x07)))return false;
+ if(typeof JSZip==='undefined'){result.innerHTML='<div class="finding warn">⚠️ تم اكتشاف ZIP مضمّن، لكن مكتبة فك ZIP لم تُحمّل. أعد تحميل الصفحة.</div>';return true;}
+ var zip=await JSZip.loadAsync(extra),names=Object.keys(zip.files),texts=[],found=[];
+ for(var i=0;i<names.length;i++){var zf=zip.files[names[i]];if(zf.dir)continue;if(/\.(txt|log|csv|json|xml|md|ini|cfg)$/i.test(zf.name)||names.length<=5){var t=await zf.async('string');texts.push({name:zf.name,text:t});var ff=flags(t);for(var k=0;k<ff.length;k++)found.push(ff[k]);}}
+ var html='<div class="studentSummary"><h2>🧠 Challenge Brain</h2><div class="studentCard"><b>1️⃣ المسار المكتشف</b><p>PNG → بيانات بعد IEND → <strong>ZIP مضمّن</strong></p></div><div class="studentCard"><b>2️⃣ الملفات المستخرجة</b><p>'+esc(names.join('، '))+'</p></div>';
+ if(found.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var j=0;j<found.length;j++)html+='<div class="flag">'+esc(found[j])+'</div>';result.innerHTML=html+'</div></div>';return true;}
+ var combined='';for(var x=0;x<texts.length;x++)combined+='\n'+texts[x].text;
+ var dataMatch=combined.match(/(?:DATA\s*=\s*)?([A-Za-z0-9+/=]{12,})/g),candidate='';
+ if(dataMatch){for(var d=0;d<dataMatch.length;d++){var v=dataMatch[d].replace(/^DATA\s*=\s*/,'');if(v.length>candidate.length)candidate=v;}}
+ html+='<div class="studentCard next"><b>3️⃣ متابعة التحليل</b><p>لم يوجد Flag مباشر داخل ZIP. سيُرسل المحتوى النصي والترميز المكتشف تلقائيًا إلى Smart Decoder.</p></div></div>';
+ result.innerHTML=html;
+ if(candidate){setTimeout(function(){analyzeText(candidate,true);},80);}else if(combined.trim()){setTimeout(function(){analyzeText(combined,true);},80);}
+ return true;
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
- reader.onload=function(){try{
+ reader.onload=async function(){try{
   var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم التحقق من بنية الصورة حتى IEND.</p></div>';
-   if(extra.length){html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+extra.length+' بايت</strong> من البيانات بعد النهاية الطبيعية للصورة. هذا مؤشر مهم في تحديات Forensics/Steganography.</p></div>';
+   if(extra.length){html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+extra.length+' بايت</strong> من البيانات بعد النهاية الطبيعية للصورة. هذا مؤشر مهم في تحديات Forensics/Steganography.</p></div>';if(await analyzeEmbeddedZip(extra,result))return;
     if(ef.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b><p>تم العثور على العلم داخل البيانات الملحقة بالصورة.</p>';for(var i=0;i<ef.length;i++)html+='<div class="flag">'+esc(ef[i])+'</div>';html+='</div>';}
     else{html+='<div class="studentCard next"><b>3️⃣ الخطوة التالية</b><p>تم استخراج البيانات الملحقة وسيجرب عليها محرك فك الترميز تلقائيًا.</p></div></div>';result.innerHTML=html;analyzeText(extraText,true);return;}
    }else html+='<div class="studentCard next"><b>2️⃣ النتيجة</b><p>لم توجد بيانات بعد IEND. سيحتاج الاختبار التالي إلى فحص metadata/chunks أو LSB.</p></div>';
