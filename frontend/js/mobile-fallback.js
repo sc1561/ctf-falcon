@@ -305,6 +305,12 @@ function analyzeLogs(raw,name,result){
  result.innerHTML=h+'</div>';return true;
 }
 function looksLikeLog(raw){raw=String(raw||'');return raw.split(/\r?\n/).length>=3&&(/\b(?:GET|POST|PUT|DELETE)\s+\/\S*\s+HTTP\/\d/i.test(raw)||/failed password|unauthorized|invalid password/i.test(raw));}
+
+function showSelectedFile(file){
+ var box=byId('fileStatus');if(!box||!file)return;
+ var kb=file.size<1024?file.size+' B':file.size<1048576?(file.size/1024).toFixed(1)+' KB':(file.size/1048576).toFixed(2)+' MB';
+ box.className='fileStatus ready';box.innerHTML='✅ <strong>تم اختيار الملف بنجاح</strong><br><span>'+esc(file.name)+'</span> · '+kb;
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
@@ -328,7 +334,12 @@ function analyzeFile(file){
     html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+png.texts.length+'</strong> حقل metadata نصيًا داخل PNG: <strong>'+esc(png.texts.map(function(x){return x.type+(x.key?' ('+x.key+')':'');}).join('، '))+'</strong>.</p><div class="solvePath">PNG → Chunks → Metadata</div></div>';
     if(directMeta.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var mdi=0;mdi<directMeta.length;mdi++)html+='<div class="flag">'+esc(directMeta[mdi])+'</div>';result.innerHTML=html+'</div></div>';return;}
     html+='<div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>الـmetadata لا يحتوي Flag مباشرًا، لذلك سيُرسل المحتوى تلقائيًا إلى Smart Decoder.</p><div class="solvePath">PNG → Metadata → Encoded Data → Smart Decoder</div></div></div>';result.innerHTML=html;
-    var bestMeta=metaVals.sort(function(a,b){return b.length-a.length;})[0]||'';if(bestMeta){setTimeout(function(){analyzeText(bestMeta,true);},120);}return;
+    var bestMeta=metaVals.sort(function(a,b){return b.length-a.length;})[0]||'';
+    /* Metadata can be a decoy. Always continue to pixel LSB when metadata has no direct flag. */
+    var lsbMetaHit=await analyzePngLSB(file,u8,result);
+    if(lsbMetaHit)return;
+    if(bestMeta){setTimeout(function(){analyzeText(bestMeta,true,'PNG → Metadata → Smart Decoder');},120);}
+    return;
    }
    if(extra.length){html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+extra.length+' بايت</strong> من البيانات بعد النهاية الطبيعية للصورة. هذا مؤشر مهم في تحديات Forensics/Steganography.</p></div>';if(await analyzeEmbeddedZip(extra,result))return;
     if(ef.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b><p>تم العثور على العلم داخل البيانات الملحقة بالصورة.</p>';for(var i=0;i<ef.length;i++)html+='<div class="flag">'+esc(ef[i])+'</div>';html+='</div>';}
