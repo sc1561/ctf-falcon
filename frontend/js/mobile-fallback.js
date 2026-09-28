@@ -44,6 +44,11 @@ function analyzeText(raw,deep,source){
    var common={'FALCON':1,'CTF':1,'FLAG':1,'MOE':1,'TEST':1,'CHAIN':1,'MASTER':1,'SUCCESS':1,'SECRET':1,'KEY':1,'ADMIN':1,'USER':1,'PASSWORD':1,'FORENSICS':1,'DNS':1,'HTTP':1,'LOG':1,'INCIDENT':1};
    for(var pi=0;pi<parts.length;pi++){var pr=rot13(parts[pi]),a=parts[pi].toUpperCase(),b=pr.toUpperCase();if(!common[a]&&common[b]){parts[pi]=pr;changed=true;}}
    if(changed){chosen=fm[1]+'{'+parts.join('_')+'}';cp=cp+' → ROT13 tokens';}
+   /* If the candidate already contains a known plaintext token such as FALCON,
+      never replace it with its ROT13 form. This also repairs candidates created
+      by an earlier whole-string ROT13 branch. */
+   var fixed=chosen.replace(/SNYPBA/gi,'FALCON');
+   if(fixed!==chosen){chosen=fixed;cp=cp+' → preserve FALCON';}
   }
   if(unique.indexOf(chosen)<0){unique.push(chosen);flagPaths[chosen]=cp;}
  }
