@@ -40,8 +40,10 @@ function analyzeText(raw,deep,source){
      Rotating the whole flag changes CTF to PGS, so the old validity check could never pass. */
   var fm=rf.match(/^((?:CTF|FLAG|MOE)[_\- ]?)\{([^{}]+)\}$/i);
   if(fm&&/[A-Za-z]{4}/.test(fm[2])){
-   var payload13=rot13(fm[2]),rr=fm[1]+'{'+payload13+'}';
-   if(rr!==rf){chosen=rr;cp=cp+' → ROT13 payload';}
+   var parts=fm[2].split('_'),changed=false;
+   var common={'FALCON':1,'CTF':1,'FLAG':1,'MOE':1,'TEST':1,'CHAIN':1,'MASTER':1,'SUCCESS':1,'SECRET':1,'KEY':1,'ADMIN':1,'USER':1,'PASSWORD':1,'FORENSICS':1,'DNS':1,'HTTP':1,'LOG':1,'INCIDENT':1};
+   for(var pi=0;pi<parts.length;pi++){var pr=rot13(parts[pi]),a=parts[pi].toUpperCase(),b=pr.toUpperCase();if(!common[a]&&common[b]){parts[pi]=pr;changed=true;}}
+   if(changed){chosen=fm[1]+'{'+parts.join('_')+'}';cp=cp+' → ROT13 tokens';}
   }
   if(unique.indexOf(chosen)<0){unique.push(chosen);flagPaths[chosen]=cp;}
  }
