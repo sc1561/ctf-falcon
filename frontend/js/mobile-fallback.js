@@ -408,12 +408,40 @@ function analyzeBinaryDigitFile(raw,name,result){
  }
  return true;
 }
+function pdfUnescape(v){
+ return String(v||'').replace(/\\([nrtbf()\\])/g,function(_,c){return c==='n'?'\n':c==='r'?'\r':c==='t'?'\t':c==='b'?'\b':c==='f'?'\f':c;}).replace(/\\([0-7]{1,3})/g,function(_,o){return String.fromCharCode(parseInt(o,8));});
+}
+function analyzePdfMetadata(u8,name,result){
+ if(!(u8.length>=5&&u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46&&u8[4]===0x2d))return false;
+ var raw=bytesText(u8),fields=[],seen={};
+ function add(k,v,src){v=pdfUnescape(v).trim();if(!v)return;var key=k+'\x00'+v;if(!seen[key]){seen[key]=1;fields.push({key:k,value:v,source:src});}}
+ var re=/\/(Title|Author|Subject|Keywords|Creator|Producer|CreationDate|ModDate|Trapped)\s*\(([^)]*(?:\\\)[^)]*)*)\)/gi,m;
+ while((m=re.exec(raw))!==null)add(m[1],m[2],'Info Dictionary');
+ var hex=/\/(Title|Author|Subject|Keywords|Creator|Producer)\s*<([0-9A-Fa-f\s]{4,})>/gi;
+ while((m=hex.exec(raw))!==null){var hs=m[2].replace(/\s/g,'');if(hs.length%2===0)add(m[1],hexDecode(hs),'Info Dictionary');}
+ var xmp=raw.match(/<x:xmpmeta[\s\S]*?<\/x:xmpmeta>/i);
+ if(xmp){
+  var xr=/<(?:dc:title|dc:creator|dc:description|pdf:Keywords|pdf:Producer|xmp:CreatorTool)[^>]*>([\s\S]*?)<\//gi,x;
+  while((x=xr.exec(xmp[0]))!==null)add('XMP',x[1].replace(/<[^>]+>/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'),'XMP Metadata');
+ }
+ var found=[];
+ for(var i=0;i<fields.length;i++){
+  var generic=fields[i].value.match(/[A-Za-z][A-Za-z0-9_.:-]{1,30}\{[^{}\r\n]{2,200}\}/g)||[];
+  for(var j=0;j<generic.length;j++)if(found.indexOf(generic[j])<0)found.push(generic[j]);
+ }
+ var html='<div class="studentSummary"><h2>📄 PDF Forensics Analyzer</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PDF / Metadata Forensics</p><div class="solvePath">PDF → Info Dictionary / XMP → Metadata → Flag Hunter</div></div>';
+ html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر؟</b><p>تم فحص Metadata داخل الملف محليًا، والعثور على <strong>'+fields.length+'</strong> حقلًا قابلًا للقراءة.</p>';
+ if(fields.length){html+='<details><summary>عرض الحقول المستخرجة</summary>';for(var q=0;q<fields.length;q++)html+='<p><strong>'+esc(fields[q].key)+':</strong> <code>'+esc(fields[q].value.slice(0,500))+'</code></p>';html+='</details>';}html+='</div>';
+ if(found.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var z=0;z<found.length;z++)html+='<div class="flag">'+esc(found[z])+'</div><div class="solvePath">PDF → Metadata → '+esc(found[z])+'</div>';html+='</div>';}
+ else{html+='<div class="studentCard next"><b>3️⃣ Smart Rescue Mode</b><p>لم تظهر صيغة Flag واضحة في الحقول القياسية. افحص Metadata يدويًا باستخدام <code>exiftool '+esc(name)+'</code> أو خصائص المستند، وركّز على Title وAuthor وSubject وKeywords وCreator.</p><p><a href="https://www.metadata2go.com/" target="_blank" rel="noopener noreferrer">🌐 Metadata2Go — فحص Metadata خارجي</a></p><small>⚠️ الموقع الخارجي يتطلب رفع الملف؛ استخدمه فقط مع ملفات CTF التدريبية المصرح بها.</small></div>';}
+ result.innerHTML=html+'</div>';return true;
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
