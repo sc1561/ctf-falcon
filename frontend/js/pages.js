@@ -1,3 +1,18 @@
+
+/* Global drag/drop navigation guard: capture before browser default navigation. */
+['dragenter','dragover','drop'].forEach(function(ev){
+ document.addEventListener(ev,function(e){
+  var dt=e.dataTransfer;
+  if(dt && ((dt.files&&dt.files.length) || (dt.types&&Array.prototype.indexOf.call(dt.types,'Files')!==-1))){
+   e.preventDefault();
+   if(ev==='dragover') dt.dropEffect='copy';
+  }
+ },true);
+ window.addEventListener(ev,function(e){
+  var dt=e.dataTransfer;
+  if(dt && ((dt.files&&dt.files.length) || (dt.types&&Array.prototype.indexOf.call(dt.types,'Files')!==-1))) e.preventDefault();
+ },true);
+});
 const $=s=>document.querySelector(s),file=$('#file'),text=$('#text'),go=$('#go'),deep=$('#deep'),result=$('#result'),drop=$('#drop');let last={bytes:null,sigs:[],type:'',flags:[],info:[]};
 file.onchange=()=>{if(file.files[0])drop.querySelector('b').textContent='✅ '+file.files[0].name};['dragover','drop'].forEach(e=>drop.addEventListener(e,x=>x.preventDefault()));drop.addEventListener('drop',e=>{file.files=e.dataTransfer.files;file.onchange()});
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),uniq=a=>[...new Set(a)],hex=b=>[...b].map(x=>x.toString(16).padStart(2,'0')).join('');
