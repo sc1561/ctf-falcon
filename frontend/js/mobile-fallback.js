@@ -408,6 +408,36 @@ function analyzeBinaryDigitFile(raw,name,result){
  }
  return true;
 }
+function analyzeJpegMetadata(u8,name,result){
+ if(u8.length<4||u8[0]!==255||u8[1]!==216||u8[2]!==255)return false;
+ var p=2,items=[],seen={};
+ function add(k,v){v=String(v||'').replace(/\x00+/g,'').trim();if(!v)return;var sk=k+'|'+v;if(!seen[sk]){seen[sk]=1;items.push({key:k,value:v});}}
+ while(p+4<=u8.length){
+  if(u8[p]!==255){p++;continue;}
+  while(p<u8.length&&u8[p]===255)p++;
+  var mk=u8[p++];if(mk===217||mk===218)break;if(mk===1||(mk>=208&&mk<=215))continue;
+  if(p+2>u8.length)break;var len=(u8[p]<<8)|u8[p+1];if(len<2||p+len>u8.length)break;
+  var data=u8.slice(p+2,p+len),t=bytesText(data);
+  if(mk===254)add('JPEG Comment',t);
+  if(mk>=224&&mk<=239){var runs=t.match(/[\x20-\x7e]{8,}/g)||[];for(var q=0;q<runs.length;q++)if(/academy|flag|ctf|steg|password|[A-Za-z0-9+/=]{16,}/i.test(runs[q]))add('APP'+(mk-224),runs[q]);}
+  p+=len;
+ }
+ var found=[],decoded=[],steg='';
+ for(var i=0;i<items.length;i++){
+  var v=items[i].value,fg=v.match(/[A-Za-z][A-Za-z0-9_.:-]{1,30}\{[^{}\r\n]{2,200}\}/g)||[];
+  for(var j=0;j<fg.length;j++)if(found.indexOf(fg[j])<0)found.push(fg[j]);
+  var tok=v.match(/[A-Za-z0-9+/]{12,}={0,2}/g)||[];
+  for(var x=0;x<tok.length;x++){if(tok[x].length%4)continue;var d=b64(tok[x]);if(!d)continue;decoded.push(d);if(/^steghide:/i.test(d))steg=d;var ff=d.match(/[A-Za-z][A-Za-z0-9_.:-]{1,30}\{[^{}\r\n]{2,200}\}/g)||[];for(var y=0;y<ff.length;y++)if(found.indexOf(ff[y])<0)found.push(ff[y]);}
+ }
+ var pass='';
+ if(steg){var enc=steg.replace(/^steghide:/i,'').trim();pass=b64(enc)||enc;}
+ var h='<div class="studentSummary"><h2>🖼️ JPEG Forensics Analyzer</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>JPG / Metadata Forensics</p><div class="solvePath">JPEG → Metadata → Decoder</div></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر؟</b><p>وجد <strong>'+items.length+'</strong> قيمة Metadata مهمة.</p>';
+ if(items.length){h+='<details><summary>عرض الحقول المستخرجة</summary>';for(var z=0;z<items.length;z++)h+='<p><strong>'+esc(items[z].key)+':</strong> <code>'+esc(items[z].value.slice(0,400))+'</code></p>';h+='</details>';}h+='</div>';
+ if(found.length){h+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var a=0;a<found.length;a++)h+='<div class="flag">'+esc(found[a])+'</div>';h+='<div class="solvePath">JPEG → Metadata → Decode → Flag</div></div>';}
+ else if(pass){h+='<div class="studentCard next"><b>3️⃣ اكتشاف حمولة Steghide 🔐</b><p>تم فك تلميح Metadata تلقائيًا.</p><p><strong>كلمة المرور:</strong> <code>'+esc(pass)+'</code></p><div class="solvePath">JPEG → Metadata → Base64 → Steghide Password → Hidden Payload</div><p>نفّذ: <code>steghide extract -sf '+esc(name)+' -p '+esc(pass)+'</code></p><p>ثم ارفع الملف المستخرج إلى صقر ليكمل التحليل.</p></div>';}
+ else{h+='<div class="studentCard next"><b>3️⃣ Smart Rescue Mode</b><p>لم يظهر علم مباشر. جرّب <code>exiftool '+esc(name)+'</code> و <code>steghide info '+esc(name)+'</code>.</p></div>';}
+ result.innerHTML=h+'</div>';return true;
+}
 function pdfUnescape(v){
  return String(v||'').replace(/\\([nrtbf()\\])/g,function(_,c){return c==='n'?'\n':c==='r'?'\r':c==='t'?'\t':c==='b'?'\b':c==='f'?'\f':c;}).replace(/\\([0-7]{1,3})/g,function(_,o){return String.fromCharCode(parseInt(o,8));});
 }
@@ -450,7 +480,7 @@ function analyzeFile(file){
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(analyzeJpegMetadata(u8,name,result))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
