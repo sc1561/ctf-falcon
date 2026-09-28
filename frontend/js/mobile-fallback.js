@@ -154,7 +154,7 @@ function analyzePcap(u8,name,result){
    var joined='';for(var dp=0;dp<dnsParts.length;dp++)joined+=dnsParts[dp].v;
    var dnsHtml='<div class="studentSummary"><h2>🌐 تحليل DNS</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PCAP / DNS Analysis</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>قرأ <strong>'+packets+'</strong> حزمة، واستخرج <strong>'+dnsQueries.length+'</strong> DNS Query، واكتشف <strong>'+dnsParts.length+'</strong> أجزاء بيانات غير طبيعية ومرتبة.</p><div class="solvePath">PCAP → UDP/53 → DNS Queries → Chunk Detection → Reassembly</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>تم تجميع أجزاء DNS وسيتم إرسال الناتج تلقائيًا إلى Smart Decoder.</p><div class="solvePath">DNS Chunks → Reassembled Data → Smart Decoder</div></div></div>';
    result.innerHTML=dnsHtml;
-   setTimeout(function(){analyzeText(joined,true);},120);return true;
+   setTimeout(function(){analyzeText(joined,true,'PCAP → UDP/53 → DNS Queries → Chunk Detection → Reassembly');},120);return true;
   }
   var rebuilt=[],streamCount=0;
   Object.keys(streams).forEach(function(key){
@@ -180,7 +180,7 @@ function analyzePcap(u8,name,result){
   if(direct.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var q=0;q<direct.length;q++)html+='<div class="flag">'+esc(direct[q])+'</div>';result.innerHTML=html+'</div></div>';return true;}
   if(vals.length){
    html+='<div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>بعد إعادة تجميع TCP وجد النظام بيانات مرمّزة داخل HTTP، وسيحللها تلقائيًا.</p><div class="solvePath">TCP Stream → HTTP → Encoded Data → Smart Decoder</div></div></div>';result.innerHTML=html;
-   vals.sort(function(a,b){return b.length-a.length;});setTimeout(function(){analyzeText(vals[0],true);},120);return true;
+   vals.sort(function(a,b){return b.length-a.length;});setTimeout(function(){analyzeText(vals[0],true,'PCAP → TCP Segments → Stream Reassembly → HTTP → Encoded Data');},120);return true;
   }
   html+='<div class="studentCard next"><b>3️⃣ النتيجة</b><p>تمت إعادة تجميع TCP، لكن لم يظهر ترميز واضح. الخطوة التالية ستكون تحليل DNS أو بروتوكولات أخرى.</p></div></div>';result.innerHTML=html;return true;
  }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في PCAP Analyzer: '+esc(e.message||e)+'</div>';return true;}
