@@ -41,3 +41,5 @@ if(closeBtn&&dlg) closeBtn.addEventListener('click',()=>{
  try{ if(typeof dlg.close==='function') dlg.close(); else dlg.removeAttribute('open'); }
  catch(e){ dlg.removeAttribute('open'); }
 });
+/* File selection feedback */
+if(file) file.addEventListener('change',function(){if(file.files&&file.files[0]&&typeof window.showSelectedFile==='function')window.showSelectedFile(file.files[0]);});
