@@ -294,14 +294,35 @@ async function analyzeEmbeddedContainer(u8,result){
  }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في Digital Forensics: '+esc(e.message||e)+'</div>';return true;}
 }
 function analyzeLogs(raw,name,result){
- var lines=String(raw||'').split(/\r?\n/).filter(function(x){return x.trim();}),ips={},fails=0,hits=[],i;
- for(i=0;i<lines.length;i++){var l=lines[i],m=l.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);if(m)ips[m[0]]=(ips[m[0]]||0)+1;if(/failed|invalid|unauthorized|forbidden|blocked|\s40[13]\s/i.test(l))fails++;
+ var lines=String(raw||'').split(/\r?\n/).filter(function(x){return x.trim();}),ips={},fails=0,hits=[],evidence=[],i;
+ for(i=0;i<lines.length;i++){
+  var l=lines[i],m=l.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  if(m)ips[m[0]]=(ips[m[0]]||0)+1;
+  if(/failed|invalid|unauthorized|forbidden|blocked|\s40[13]\s/i.test(l))fails++;
   var f=flags(l);for(var j=0;j<f.length;j++)hits.push(f[j]);
-  var t=l.match(/[A-Za-z0-9+\/_=-]{20,}/g)||[];for(j=0;j<t.length;j++){try{var d=b64(t[j]),ff=flags(d);for(var k=0;k<ff.length;k++)hits.push(ff[k]);}catch(e){}}
+  /* Send encoded-looking log values to the proven recursive text decoder. */
+  var t=l.match(/[A-Za-z0-9+\/_=-]{20,}/g)||[];
+  for(j=0;j<t.length;j++){
+   var token=t[j];
+   /* Avoid timestamps/IP-like noise and retain likely Base64/Hex evidence. */
+   if(/^\d+$/.test(token))continue;
+   if(/^[0-9a-fA-F]{24,}$/.test(token)||(/^[A-Za-z0-9+\/_-]+={0,2}$/.test(token)&&token.length%4===0)){
+    evidence.push(token);
+   }
+  }
  }
- var top=Object.keys(ips).map(function(k){return [k,ips[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,5),uniq={};hits=hits.filter(function(x){if(uniq[x])return false;uniq[x]=1;return true;});
+ var top=Object.keys(ips).map(function(k){return [k,ips[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,5),uniq={};
+ hits=hits.filter(function(x){if(uniq[x])return false;uniq[x]=1;return true;});
  var h='<div class="studentSummary"><h2>📜 Log & Incident Analysis</h2><div class="studentCard"><b>1️⃣ ملخص الحادثة</b><p>تم تحليل <strong>'+lines.length+'</strong> سطرًا، ورصد <strong>'+fails+'</strong> حدث فشل/رفض.</p>'+(top.length?'<p>أكثر IP ظهورًا: <strong>'+esc(top.map(function(x){return x[0]+' ('+x[1]+')';}).join('، '))+'</strong></p>':'')+'</div>';
- if(hits.length){h+='<div class="studentCard success"><b>2️⃣ العلم المرشح 🚩</b>';for(i=0;i<hits.length;i++)h+='<div class="flag">'+esc(hits[i])+'</div>';h+='</div>';}else h+='<div class="studentCard next"><b>2️⃣ النتيجة</b><p>لم يظهر Flag مباشر أو Base64 واضح.</p></div>';
+ if(hits.length){h+='<div class="studentCard success"><b>2️⃣ العلم المرشح 🚩</b>';for(i=0;i<hits.length;i++)h+='<div class="flag">'+esc(hits[i])+'</div>';h+='</div>';result.innerHTML=h+'</div>';return true;}
+ if(evidence.length){
+  h+='<div class="studentCard"><b>2️⃣ Evidence مشفر</b><p>عثر صقر على <strong>'+evidence.length+'</strong> قيمة مرشحة داخل السجل، وسيتم تمرير أقواها إلى Smart Decoder متعدد المراحل.</p><div class="solvePath">Log → Suspicious Event → Encoded Evidence → Smart Decoder</div></div></div>';
+  result.innerHTML=h;
+  evidence.sort(function(a,b){return b.length-a.length;});
+  setTimeout(function(){analyzeText(evidence[0],true,'Log → Incident Evidence');},120);
+  return true;
+ }
+ h+='<div class="studentCard next"><b>2️⃣ النتيجة</b><p>لم يظهر Flag مباشر ولم تُكتشف قيمة Evidence مشفرة واضحة.</p></div>';
  result.innerHTML=h+'</div>';return true;
 }
 function looksLikeLog(raw){raw=String(raw||'');return raw.split(/\r?\n/).length>=3&&(/\b(?:GET|POST|PUT|DELETE)\s+\/\S*\s+HTTP\/\d/i.test(raw)||/failed password|unauthorized|invalid password/i.test(raw));}
