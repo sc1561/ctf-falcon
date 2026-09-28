@@ -361,11 +361,23 @@ function analyzeBinaryDigitFile(raw,name,result){
  var blob=new Blob([out],{type:mime}),url=URL.createObjectURL(blob);
  var h='<div class="studentSummary"><h2>🧬 Binary Reconstruction</h2><div class="studentCard"><b>1️⃣ ماذا اكتشف صقر؟</b><p>الملف يحتوي على <strong>'+bits.length+'</strong> خانة ثنائية 0/1. تم تقسيمها إلى مجموعات 8-bit وإعادة بنائها إلى <strong>'+out.length+'</strong> بايت.</p><div class="solvePath">Binary Text → 8-bit Chunks → Bytes → '+type+' Signature</div></div>';
  if(type==='JPEG'||type==='PNG'){
-  h+='<div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم التعرف على صورة <strong>'+type+'</strong> وإعادة بنائها داخل المتصفح.</p><img src="'+url+'" alt="Recovered '+type+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_recovered.'+ext+'">💾 حفظ الصورة المستعادة</a></p></div><div class="studentCard next"><b>3️⃣ الخطوة التالية</b><p>افحص الصورة المستعادة بصريًا بحثًا عن النص أو العلم، ويمكن تمريرها لاحقًا إلى محللات الصور المتخصصة.</p></div>';
+  h+='<div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم التعرف على صورة <strong>'+type+'</strong> وإعادة بنائها داخل المتصفح.</p><img id="falconRecoveredImage" src="'+url+'" alt="Recovered '+type+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_recovered.'+ext+'">💾 حفظ الصورة المستعادة</a></p></div><div class="studentCard"><b>3️⃣ Visual Flag Hunter</b><p>سيحاول صقر الآن قراءة النص الظاهر داخل الصورة تلقائيًا.</p><div class="solvePath">Binary → '+type+' → Image Analysis → Text Detection → Flag</div><div id="visualFlagStatus" class="finding">⏳ جارٍ تحليل النص داخل الصورة...</div></div>';
  }else{
   h+='<div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم التعرف على ملف <strong>'+type+'</strong>.</p><p><a href="'+url+'" download="falcon_recovered.'+ext+'">💾 حفظ الملف المستعاد</a></p></div>';
  }
- result.innerHTML=h+'</div>';return true;
+ result.innerHTML=h+'</div>';
+ if(type==='JPEG'||type==='PNG'){
+  setTimeout(async function(){
+   var status=byId('visualFlagStatus');if(!status)return;
+   try{
+    if(typeof Tesseract==='undefined'){status.className='finding warn';status.innerHTML='⚠️ Visual Flag Hunter جاهز، لكن محرك OCR لم يتم تحميله في هذه الصفحة.';return;}
+    var rec=await Tesseract.recognize(url,'eng'),txt=(rec&&rec.data&&rec.data.text)||'',vf=flags(txt);
+    if(vf.length){status.className='finding success';status.innerHTML='<b>🚩 تم استخراج العلم تلقائيًا من الصورة</b><div class="solvePath">Binary → '+type+' → OCR → Flag</div>'+vf.map(function(x){return '<div class="flag">'+esc(x)+'</div>';}).join('');}
+    else{status.className='finding warn';status.innerHTML='تم تحليل الصورة بصريًا، لكن لم تُكتشف صيغة Flag واضحة تلقائيًا.';}
+   }catch(e){status.className='finding warn';status.innerHTML='تعذر إكمال القراءة البصرية تلقائيًا: '+esc(e.message||e);}
+  },100);
+ }
+ return true;
 }
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
