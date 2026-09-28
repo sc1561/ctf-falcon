@@ -213,12 +213,38 @@ function analyzePngLSB(file,u8,result){
   }catch(e){resolve(false);}
  });
 }
+async function analyzeEmbeddedContainer(u8,result){
+ try{
+  var sig=[0x50,0x4b,0x03,0x04],off=-1;
+  for(var i=0;i<=u8.length-sig.length;i++){var ok=true;for(var j=0;j<sig.length;j++)if(u8[i+j]!==sig[j]){ok=false;break;}if(ok){off=i;break;}}
+  if(off<0)return false;
+  var zip=u8.slice(off);
+  result.innerHTML='<div class="studentSummary"><h2>🧬 Digital Forensics</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Binary / Embedded File</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>اكتشف توقيع <strong>ZIP</strong> مضمّنًا داخل الملف عند offset <strong>'+off+'</strong>.</p><div class="solvePath">Binary → Signature Scan → Embedded ZIP</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>سيتم فحص محتويات ZIP داخل المتصفح والبحث عن أدلة أو بيانات مرمزة.</p></div></div>';
+  if(typeof DecompressionStream==='undefined')return true;
+  /* Parse local ZIP entries; support stored and deflate entries using browser DecompressionStream. */
+  var p=0,entries=[];
+  while(p+30<=zip.length&&zip[p]===0x50&&zip[p+1]===0x4b&&zip[p+2]===0x03&&zip[p+3]===0x04){
+   var method=zip[p+8]|(zip[p+9]<<8),cs=(zip[p+18]|zip[p+19]<<8|zip[p+20]<<16|zip[p+21]<<24)>>>0;
+   var nl=zip[p+26]|zip[p+27]<<8,el=zip[p+28]|zip[p+29]<<8;
+   var name=bytesText(zip.slice(p+30,p+30+nl)),ds=p+30+nl+el,de=ds+cs;
+   if(de>zip.length)break;var data=zip.slice(ds,de),out=data;
+   try{if(method===8){var stream=new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));out=new Uint8Array(await new Response(stream).arrayBuffer());}}
+   catch(e){}
+   entries.push({name:name,text:bytesText(out)});p=de;
+  }
+  var candidates=[],direct=[];
+  for(var e=0;e<entries.length;e++){var t=entries[e].text,ff=flags(t);for(var q=0;q<ff.length;q++)direct.push(ff[q]);if(t&&t.length>=8)candidates.push({name:entries[e].name,text:t,score:quality(t)});}
+  if(direct.length){result.innerHTML+='<div class="studentCard success"><b>🚩 العلم المرشح</b><div class="flag">'+esc(direct[0])+'</div></div>';return true;}
+  if(candidates.length){candidates.sort(function(a,b){return b.score-a.score||b.text.length-a.text.length;});var best=candidates[0];result.innerHTML+='<div class="studentCard next"><b>📦 تم استخراج '+entries.length+' ملفات</b><p>أفضل دليل: <strong>'+esc(best.name)+'</strong>. سيتم تمريره إلى Smart Decoder.</p><div class="solvePath">Embedded ZIP → '+esc(best.name)+' → Smart Decoder</div></div>';setTimeout(function(){analyzeText(best.text,true,'Binary → Embedded ZIP → '+best.name);},120);return true;}
+  return true;
+ }catch(e){return false;}
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;}
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
