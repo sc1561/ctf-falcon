@@ -31,7 +31,14 @@ function analyzeText(raw,deep,source){
  var ranked=Object.keys(bestFlags).map(function(k){return bestFlags[k];});
  ranked.sort(function(a,b){return b.depth-a.depth;});
  var maxDepth=ranked.length?ranked[0].depth:-1,unique=[],flagPaths={};
- for(q=0;q<ranked.length;q++){if(ranked[q].depth<maxDepth)continue;unique.push(ranked[q].flag);flagPaths[ranked[q].flag]=ranked[q].path;}
+ /* A flag-shaped value may itself be ROT13 encoded. Prefer the transformed
+    flag when ROT13 changes the payload and remains a valid flag. */
+ for(q=0;q<ranked.length;q++){
+  if(ranked[q].depth<maxDepth)continue;
+  var rf=ranked[q].flag,rr=rot13(rf),chosen=rf,cp=ranked[q].path;
+  if(rr!==rf&&flags(rr).length&&/[A-Za-z]{4}/.test(rf)){chosen=rr;cp=cp+' → ROT13';}
+  if(unique.indexOf(chosen)<0){unique.push(chosen);flagPaths[chosen]=cp;}
+ }
  var detected=[];var names=['Base64','Hex','Binary','URL Decode','ROT13','Morse','Caesar'];for(var ni=0;ni<names.length;ni++){for(var di=0;di<rows.length;di++)if(rows[di].path.indexOf(names[ni])>=0){detected.push(names[ni]);break;}}
  var html='<div class="studentSummary"><h2>'+(unique.length?'🎉 تم العثور على علم محتمل':'🧭 نتيجة التحليل')+'</h2>';
  html+='<div class="studentCard"><b>1️⃣ ما نوع التحدي؟</b><p>'+(detected.length?'يبدو أنه تحدي ترميز/تشفير نصي متعدد المراحل.':'لم يتضح نوع الترميز تلقائيًا بعد.')+'</p></div>';
