@@ -1,0 +1,6 @@
+<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><title>CTF Falcon LSB Base64 Test</title><body><h1>مولد تحدي PNG → LSB → Base64</h1><p>اضغط الزر لتنزيل ملف التحدي ثم ارفعه إلى CTF Falcon. العلم مخفي داخل LSB بعد ترميزه Base64.</p><button id="b">تنزيل falcon_lsb_base64.png</button><canvas id="c" width="320" height="180" hidden></canvas><script>
+const flag='CTF{LSB_BASE64_CHAIN_SUCCESS}';
+const payload=btoa(flag)+'\0';
+function bits(s){return [...new TextEncoder().encode(s)].flatMap(x=>Array.from({length:8},(_,i)=>(x>>(7-i))&1))}
+document.getElementById('b').onclick=()=>{const c=document.getElementById('c'),x=c.getContext('2d');let g=x.createLinearGradient(0,0,320,180);g.addColorStop(0,'#17324d');g.addColorStop(1,'#2d8fa3');x.fillStyle=g;x.fillRect(0,0,320,180);x.fillStyle='#fff';x.font='bold 30px sans-serif';x.fillText('CTF FALCON',65,95);let im=x.getImageData(0,0,c.width,c.height),a=im.data,bs=bits(payload),j=0;for(let i=0;i<a.length&&j<bs.length;i+=4){for(let k=0;k<3&&j<bs.length;k++)a[i+k]=(a[i+k]&254)|bs[j++]}x.putImageData(im,0,0);c.toBlob(blob=>{let u=URL.createObjectURL(blob),q=document.createElement('a');q.href=u;q.download='falcon_lsb_base64.png';q.click();setTimeout(()=>URL.revokeObjectURL(u),1000)},'image/png')};
+</script></body></html>
