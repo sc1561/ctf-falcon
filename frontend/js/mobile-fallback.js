@@ -375,9 +375,30 @@ function analyzeBinaryDigitFile(raw,name,result){
      for(var ow=0;ow<20&&typeof Tesseract==='undefined';ow++)await new Promise(function(r){setTimeout(r,250);});
     }
     if(typeof Tesseract==='undefined'){status.className='finding warn';status.innerHTML='⚠️ تعذر تحميل محرك OCR. تحقق من اتصال الإنترنت ثم أعد تحميل الصفحة.';return;}
-    var rec=await Tesseract.recognize(url,'eng'),txt=(rec&&rec.data&&rec.data.text)||'',vf=flags(txt);
-    if(vf.length){status.className='finding success';status.innerHTML='<b>🚩 تم استخراج العلم تلقائيًا من الصورة</b><div class="solvePath">Binary → '+type+' → OCR → Flag</div>'+vf.map(function(x){return '<div class="flag">'+esc(x)+'</div>';}).join('');}
-    else{status.className='finding warn';status.innerHTML='تم تحليل الصورة بصريًا، لكن لم تُكتشف صيغة Flag واضحة تلقائيًا.';}
+    var img=byId('falconRecoveredImage'),targets=[url];
+    if(img&&img.naturalWidth){
+     var scales=[2,3],modes=['normal','gray','threshold'];
+     for(var si=0;si<scales.length;si++)for(var mi=0;mi<modes.length;mi++){
+      var c=document.createElement('canvas'),cx=c.getContext('2d'),sc=scales[si];c.width=img.naturalWidth*sc;c.height=img.naturalHeight*sc;cx.drawImage(img,0,0,c.width,c.height);
+      if(modes[mi]!=='normal'){
+       var id=cx.getImageData(0,0,c.width,c.height),d=id.data;
+       for(var pi=0;pi<d.length;pi+=4){var g=Math.round(0.299*d[pi]+0.587*d[pi+1]+0.114*d[pi+2]);if(modes[mi]==='threshold')g=g>155?255:0;d[pi]=d[pi+1]=d[pi+2]=g;}
+       cx.putImageData(id,0,0);
+      }
+      targets.push(c.toDataURL('image/png'));
+     }
+    }
+    var allText='',vf=[];
+    for(var ti=0;ti<targets.length&&!vf.length;ti++){
+     status.innerHTML='⏳ Visual Flag Hunter: محاولة '+(ti+1)+' من '+targets.length+'...';
+     var rec=await Tesseract.recognize(targets[ti],'eng'),txt=(rec&&rec.data&&rec.data.text)||'';allText+='\n'+txt;vf=flags(txt);
+     if(!vf.length){
+      var compact=txt.replace(/\s+/g,''),cm=compact.match(/[A-Za-z0-9_:-]{2,}\{[^{}]{2,120}\}/g)||[];
+      if(cm.length)vf=cm;
+     }
+    }
+    if(vf.length){status.className='finding success';status.innerHTML='<b>🚩 تم استخراج العلم تلقائيًا من الصورة</b><div class="solvePath">Binary → '+type+' → Image Enhancement → OCR → Flag</div>'+vf.map(function(x){return '<div class="flag">'+esc(x)+'</div>';}).join('');}
+    else{status.className='finding warn';status.innerHTML='تم تنفيذ OCR متعدد المحاولات مع التكبير وGrayscale وThreshold، لكن لم تُكتشف صيغة Flag واضحة تلقائيًا.';}
    }catch(e){status.className='finding warn';status.innerHTML='تعذر إكمال القراءة البصرية تلقائيًا: '+esc(e.message||e);}
   },100);
  }
