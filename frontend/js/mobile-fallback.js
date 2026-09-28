@@ -33,6 +33,10 @@ function analyzeText(raw,deep,source){
  if(!rows.length)html+='<div class="finding warn">لم يتم اكتشاف ترميز مدعوم في النص الحالي.</div>';html+='</div></details>';
  result.innerHTML=html;result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});
 }
+function looksLikeLog(raw){
+ raw=String(raw||'');var lines=raw.split(/\r?\n/);
+ return lines.length>=3&&(/\b(?:GET|POST|PUT|DELETE|HEAD|PATCH)\s+\/\S*\s+HTTP\/\d/i.test(raw)||/failed password|unauthorized|invalid password|status[=: ]+[1-5]\d\d/i.test(raw));
+}
 function runText(raw,deep,source){
  var result=byId('result');
  raw=String(raw||'').trim();
@@ -320,7 +324,7 @@ window.FalconSmartRun=function(){
  var ta=byId('text'),fi=byId('file'),result=byId('result'),raw=ta?ta.value:'';
  if(fi&&fi.files&&fi.files.length&&!raw.trim()){return analyzeFile(fi.files[0]);}
  if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
- return runText(raw,true,'المحلل الذكي');
+ if(looksLikeLog(raw)){result.className='result';result.innerHTML='<div class="finding">📜 تم التعرف على سجل أحداث. جارٍ تشغيل Log & Incident Analyzer...</div>';setTimeout(function(){try{analyzeLogs(raw,'pasted-log',result);}catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في Log Analyzer: '+esc(e.message||e)+'</div>';}},20);return false;} return runText(raw,true,'المحلل الذكي');
 };
 window.FalconRun=function(deep){
  var ta=byId('text'),fi=byId('file'),result=byId('result');
