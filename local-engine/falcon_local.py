@@ -3,11 +3,21 @@ import base64, json, os, re, shutil, subprocess, tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 HOST="127.0.0.1"; PORT=8765
-VERSION="0.3"
+VERSION="0.4"
+def find_steghide():
+ candidates=[
+  shutil.which("steghide"),
+  r"C:\\Falcon\\steghide\\steghide.exe",
+  str(Path(__file__).resolve().parent/"tools"/"steghide"/"steghide.exe"),
+  str(Path(__file__).resolve().parent/"steghide.exe")
+ ]
+ for c in candidates:
+  if c and Path(c).is_file(): return str(Path(c))
+ return None
 def status():
  return {"ok":True,"engine":"Falcon Local Engine","version":VERSION,
- "python":True,"steghide":bool(shutil.which("steghide")),
- "ready":bool(shutil.which("steghide"))}
+ "python":True,"steghide":bool(find_steghide()),"steghide_path":find_steghide(),
+ "ready":bool(find_steghide())}
 def dashboard():
  st=status(); sh="جاهز" if st["steghide"] else "غير مثبت"
  ready="جاهز للتحليل" if st["ready"] else "يحتاج تثبيت Steghide"
@@ -47,7 +57,7 @@ class H(BaseHTTPRequestHandler):
    else: src=Path(data["path"]).expanduser().resolve()
   except Exception: return reply(self,400,{"ok":False,"error":"Invalid request"})
   if not src.is_file(): return reply(self,400,{"ok":False,"error":"File not found"})
-  exe=shutil.which("steghide")
+  exe=find_steghide()
   if not exe: return reply(self,503,{"ok":False,"error":"steghide is not installed"})
   out=Path(tempfile.mkdtemp(prefix="falcon_"))
   p=subprocess.run([exe,"extract","-sf",str(src),"-p",password,"-xf",str(out/"payload")],capture_output=True,text=True,timeout=30)
@@ -66,6 +76,6 @@ if __name__=="__main__":
  print("🦅 Falcon Local Engine v"+VERSION)
  print(f"🌐 http://{HOST}:{PORT}")
  print("🟢 Python: ready")
- print(("🟢" if shutil.which("steghide") else "🔴")+" Steghide: "+("ready" if shutil.which("steghide") else "not installed"))
+ exe=find_steghide(); print(("🟢" if exe else "🔴")+" Steghide: "+("ready — "+exe if exe else "not installed"))
  print("Localhost only. Press Ctrl+C to stop.")
  ThreadingHTTPServer((HOST,PORT),H).serve_forever()
