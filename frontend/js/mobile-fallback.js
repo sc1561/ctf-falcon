@@ -71,11 +71,18 @@ function analyzePcap(u8,name,result){
   var dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength),magic=dv.getUint32(0,true),le=true;
   if(magic===0xd4c3b2a1)le=false; else if(magic!==0xa1b2c3d4)return false;
   var link=dv.getUint32(20,le);if(link!==1){result.innerHTML='<div class="finding warn">⚠️ PCAP معروف، لكن نوع Link-Layer الحالي غير مدعوم بعد.</div>';return true;}
-  var p=24,packets=0,hosts={},streams={};
+  var p=24,packets=0,hosts={},streams={},dnsQueries=[];
   while(p+16<=u8.length){
    var incl=dv.getUint32(p+8,le),s=p+16,e=s+incl;if(e>u8.length)break;packets++;
    if(incl>=54&&u8[s+12]===0x08&&u8[s+13]===0x00){
     var ip=s+14,ihl=(u8[ip]&15)*4,proto=u8[ip+9],src=ipstr(u8,ip+12),dst=ipstr(u8,ip+16);hosts[src]=1;hosts[dst]=1;
+    if(proto===17&&ip+ihl+8<=e){
+     var udp=ip+ihl,usport=(u8[udp]<<8)|u8[udp+1],udport=(u8[udp+2]<<8)|u8[udp+3],ds=udp+8;
+     if((usport===53||udport===53)&&ds+12<e){
+      var qd=(u8[ds+4]<<8)|u8[ds+5],pos=ds+12;
+      if(qd>0){var labels=[],guard=0;while(pos<e&&guard++<128){var ln=u8[pos++];if(ln===0)break;if((ln&192)===192){pos++;break;}if(ln>63||pos+ln>e)break;var lab='';for(var li=0;li<ln;li++)lab+=String.fromCharCode(u8[pos++]);labels.push(lab);}if(labels.length)dnsQueries.push(labels.join('.'));}
+     }
+    }
     if(proto===6&&ip+ihl+20<=e){
      var tcp=ip+ihl,sport=(u8[tcp]<<8)|u8[tcp+1],dport=(u8[tcp+2]<<8)|u8[tcp+3],seq=dv.getUint32(tcp+4,false),doff=(u8[tcp+12]>>4)*4,ps=tcp+doff;
      if(ps<e){
@@ -85,6 +92,18 @@ function analyzePcap(u8,name,result){
      }
     }
    } p=e;
+  }
+  var dnsParts=[];
+  for(var dq=0;dq<dnsQueries.length;dq++){
+   var dm=dnsQueries[dq].match(/^(\d{2})-([A-Za-z0-9_-]+)\./);
+   if(dm)dnsParts.push({n:parseInt(dm[1],10),v:dm[2],q:dnsQueries[dq]});
+  }
+  dnsParts.sort(function(a,b){return a.n-b.n;});
+  if(dnsParts.length){
+   var joined='';for(var dp=0;dp<dnsParts.length;dp++)joined+=dnsParts[dp].v;
+   var dnsHtml='<div class="studentSummary"><h2>🌐 تحليل DNS</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PCAP / DNS Analysis</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>قرأ <strong>'+packets+'</strong> حزمة، واستخرج <strong>'+dnsQueries.length+'</strong> DNS Query، واكتشف <strong>'+dnsParts.length+'</strong> أجزاء بيانات غير طبيعية ومرتبة.</p><div class="solvePath">PCAP → UDP/53 → DNS Queries → Chunk Detection → Reassembly</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>تم تجميع أجزاء DNS وسيتم إرسال الناتج تلقائيًا إلى Smart Decoder.</p><div class="solvePath">DNS Chunks → Reassembled Data → Smart Decoder</div></div></div>';
+   result.innerHTML=dnsHtml;
+   setTimeout(function(){analyzeText(joined,true);},120);return true;
   }
   var rebuilt=[],streamCount=0;
   Object.keys(streams).forEach(function(key){
@@ -106,7 +125,7 @@ function analyzePcap(u8,name,result){
   var genericRe=/(?:^|[=:\s])([A-Za-z0-9+\/]{20,}={0,2})(?=\r?$|[\s&])/gm;
   while((m=genericRe.exec(combined))!==null)vals.push(m[1]);
   vals=vals.filter(function(v,i,a){return a.indexOf(v)===i;});
-  var html='<div class="studentSummary"><h2>🌐 تحليل الشبكة</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PCAP / TCP Stream Analysis</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>قرأ <strong>'+packets+'</strong> حزم، وأعاد بناء <strong>'+streamCount+'</strong> TCP Stream، ووجد <strong>'+http.length+'</strong> تدفق HTTP.</p><div class="solvePath">PCAP → TCP Segments → Stream Reassembly → HTTP</div></div>';
+  var html='<div class="studentSummary"><h2>🌐 تحليل الشبكة</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PCAP / Network Analysis</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>قرأ <strong>'+packets+'</strong> حزم، وأعاد بناء <strong>'+streamCount+'</strong> TCP Stream، ووجد <strong>'+http.length+'</strong> تدفق HTTP.</p><div class="solvePath">PCAP → TCP Segments → Stream Reassembly → HTTP</div></div>';
   if(direct.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var q=0;q<direct.length;q++)html+='<div class="flag">'+esc(direct[q])+'</div>';result.innerHTML=html+'</div></div>';return true;}
   if(vals.length){
    html+='<div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>بعد إعادة تجميع TCP وجد النظام بيانات مرمّزة داخل HTTP، وسيحللها تلقائيًا.</p><div class="solvePath">TCP Stream → HTTP → Encoded Data → Smart Decoder</div></div></div>';result.innerHTML=html;
