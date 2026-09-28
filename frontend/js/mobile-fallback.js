@@ -347,12 +347,32 @@ function showSelectedFile(file){
  var kb=file.size<1024?file.size+' B':file.size<1048576?(file.size/1024).toFixed(1)+' KB':(file.size/1048576).toFixed(2)+' MB';
  box.className='fileStatus ready';box.innerHTML='✅ <strong>تم اختيار الملف بنجاح</strong><br><span>'+esc(file.name)+'</span> · '+kb;
 }
+function analyzeBinaryDigitFile(raw,name,result){
+ var bits=String(raw||'').replace(/\s+/g,'');
+ if(bits.length<64||!/^[01]+$/.test(bits)||bits.length%8!==0)return false;
+ var out=new Uint8Array(bits.length/8);
+ for(var i=0;i<bits.length;i+=8)out[i/8]=parseInt(bits.slice(i,i+8),2);
+ var type='',mime='',ext='';
+ if(out.length>=3&&out[0]===0xff&&out[1]===0xd8&&out[2]===0xff){type='JPEG';mime='image/jpeg';ext='jpg';}
+ else if(out.length>=8&&out[0]===137&&out[1]===80&&out[2]===78&&out[3]===71){type='PNG';mime='image/png';ext='png';}
+ else if(out.length>=4&&out[0]===0x50&&out[1]===0x4b&&out[2]===0x03&&out[3]===0x04){type='ZIP';mime='application/zip';ext='zip';}
+ else if(out.length>=4&&out[0]===0x25&&out[1]===0x50&&out[2]===0x44&&out[3]===0x46){type='PDF';mime='application/pdf';ext='pdf';}
+ if(!type)return false;
+ var blob=new Blob([out],{type:mime}),url=URL.createObjectURL(blob);
+ var h='<div class="studentSummary"><h2>🧬 Binary Reconstruction</h2><div class="studentCard"><b>1️⃣ ماذا اكتشف صقر؟</b><p>الملف يحتوي على <strong>'+bits.length+'</strong> خانة ثنائية 0/1. تم تقسيمها إلى مجموعات 8-bit وإعادة بنائها إلى <strong>'+out.length+'</strong> بايت.</p><div class="solvePath">Binary Text → 8-bit Chunks → Bytes → '+type+' Signature</div></div>';
+ if(type==='JPEG'||type==='PNG'){
+  h+='<div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم التعرف على صورة <strong>'+type+'</strong> وإعادة بنائها داخل المتصفح.</p><img src="'+url+'" alt="Recovered '+type+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_recovered.'+ext+'">💾 حفظ الصورة المستعادة</a></p></div><div class="studentCard next"><b>3️⃣ الخطوة التالية</b><p>افحص الصورة المستعادة بصريًا بحثًا عن النص أو العلم، ويمكن تمريرها لاحقًا إلى محللات الصور المتخصصة.</p></div>';
+ }else{
+  h+='<div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم التعرف على ملف <strong>'+type+'</strong>.</p><p><a href="'+url+'" download="falcon_recovered.'+ext+'">💾 حفظ الملف المستعاد</a></p></div>';
+ }
+ result.innerHTML=h+'</div>';return true;
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
