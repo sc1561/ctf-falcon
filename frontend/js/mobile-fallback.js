@@ -49,6 +49,27 @@ window.FalconSelfTest=function(){
 };
 function bytesText(u8){var s='',chunk=8192;for(var i=0;i<u8.length;i+=chunk)s+=String.fromCharCode.apply(null,u8.subarray(i,Math.min(i+chunk,u8.length)));return s;}
 function pngEnd(u8){if(u8.length<12||u8[0]!==137||u8[1]!==80||u8[2]!==78||u8[3]!==71)return -1;var p=8;while(p+12<=u8.length){var len=((u8[p]<<24)>>>0)+(u8[p+1]<<16)+(u8[p+2]<<8)+u8[p+3],type=String.fromCharCode(u8[p+4],u8[p+5],u8[p+6],u8[p+7]),end=p+12+len;if(end>u8.length)return -1;if(type==='IEND')return end;p=end;}return -1;}
+function parsePngChunks(u8){
+ var out={chunks:[],texts:[]};if(u8.length<8||u8[0]!==137||u8[1]!==80||u8[2]!==78||u8[3]!==71)return out;
+ var p=8,guard=0;
+ while(p+12<=u8.length&&guard++<10000){
+  var len=((u8[p]<<24)>>>0)+(u8[p+1]<<16)+(u8[p+2]<<8)+u8[p+3],type=String.fromCharCode(u8[p+4],u8[p+5],u8[p+6],u8[p+7]),ds=p+8,de=ds+len,end=de+4;
+  if(end>u8.length)break;out.chunks.push({type:type,len:len});
+  if(type==='tEXt'){
+   var data=bytesText(u8.slice(ds,de)),z=data.indexOf('\x00'),key=z>=0?data.slice(0,z):'',val=z>=0?data.slice(z+1):data;
+   if(val)out.texts.push({type:type,key:key,value:val});
+  }else if(type==='iTXt'){
+   var idata=bytesText(u8.slice(ds,de)),iz=idata.indexOf('\x00');
+   if(iz>=0){var rest=idata.slice(iz+1),parts=rest.split('\x00');var val=parts.length?parts[parts.length-1]:'';if(val)out.texts.push({type:type,key:idata.slice(0,iz),value:val});}
+  }else if(type==='zTXt'){
+   var zdata=bytesText(u8.slice(ds,de)),zz=zdata.indexOf('\x00');
+   out.texts.push({type:type,key:zz>=0?zdata.slice(0,zz):'',value:'',compressed:true});
+  }
+  p=end;if(type==='IEND')break;
+ }
+ return out;
+}
+
 async function analyzeEmbeddedZip(extra,result){
  if(!(extra.length>=4&&extra[0]===0x50&&extra[1]===0x4b&&(extra[2]===0x03||extra[2]===0x05||extra[2]===0x07)))return false;
  if(typeof JSZip==='undefined'){result.innerHTML='<div class="finding warn">⚠️ تم اكتشاف ZIP مضمّن، لكن مكتبة فك ZIP لم تُحمّل. أعد تحميل الصفحة.</div>';return true;}
@@ -141,8 +162,16 @@ function analyzeFile(file){
  reader.onload=async function(){try{
   var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;}
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
-   var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText);
-   html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم التحقق من بنية الصورة حتى IEND.</p></div>';
+   var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
+   html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
+   if(!extra.length&&png.texts.length){
+    var metaVals=[],directMeta=[];
+    for(var mt=0;mt<png.texts.length;mt++){var pv=png.texts[mt];if(pv.value){metaVals.push(pv.value);var mf=flags(pv.value);for(var mi=0;mi<mf.length;mi++)directMeta.push(mf[mi]);}}
+    html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+png.texts.length+'</strong> حقل metadata نصيًا داخل PNG: <strong>'+esc(png.texts.map(function(x){return x.type+(x.key?' ('+x.key+')':'');}).join('، '))+'</strong>.</p><div class="solvePath">PNG → Chunks → Metadata</div></div>';
+    if(directMeta.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var mdi=0;mdi<directMeta.length;mdi++)html+='<div class="flag">'+esc(directMeta[mdi])+'</div>';result.innerHTML=html+'</div></div>';return;}
+    html+='<div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>الـmetadata لا يحتوي Flag مباشرًا، لذلك سيُرسل المحتوى تلقائيًا إلى Smart Decoder.</p><div class="solvePath">PNG → Metadata → Encoded Data → Smart Decoder</div></div></div>';result.innerHTML=html;
+    var bestMeta=metaVals.sort(function(a,b){return b.length-a.length;})[0]||'';if(bestMeta){setTimeout(function(){analyzeText(bestMeta,true);},120);}return;
+   }
    if(extra.length){html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>وجد <strong>'+extra.length+' بايت</strong> من البيانات بعد النهاية الطبيعية للصورة. هذا مؤشر مهم في تحديات Forensics/Steganography.</p></div>';if(await analyzeEmbeddedZip(extra,result))return;
     if(ef.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b><p>تم العثور على العلم داخل البيانات الملحقة بالصورة.</p>';for(var i=0;i<ef.length;i++)html+='<div class="flag">'+esc(ef[i])+'</div>';html+='</div>';}
     else{html+='<div class="studentCard next"><b>3️⃣ الخطوة التالية</b><p>تم استخراج البيانات الملحقة وسيجرب عليها محرك فك الترميز تلقائيًا.</p></div></div>';result.innerHTML=html;analyzeText(extraText,true);return;}
