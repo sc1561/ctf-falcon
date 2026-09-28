@@ -155,6 +155,40 @@ function analyzePcap(u8,name,result){
   html+='<div class="studentCard next"><b>3️⃣ النتيجة</b><p>تمت إعادة تجميع TCP، لكن لم يظهر ترميز واضح. الخطوة التالية ستكون تحليل DNS أو بروتوكولات أخرى.</p></div></div>';result.innerHTML=html;return true;
  }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في PCAP Analyzer: '+esc(e.message||e)+'</div>';return true;}
 }
+function analyzePngLSB(file,u8,result){
+ return new Promise(function(resolve){
+  try{
+   var blob=new Blob([u8],{type:'image/png'}),url=URL.createObjectURL(blob),img=new Image();
+   img.onerror=function(){URL.revokeObjectURL(url);resolve(false);};
+   img.onload=function(){
+    try{
+     var cv=document.createElement('canvas');cv.width=img.naturalWidth;cv.height=img.naturalHeight;
+     var cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0);
+     var px=cx.getImageData(0,0,cv.width,cv.height).data,channels=[0,1,2],bits=[],bytes=[],found=[],paths=[];
+     for(var ci=0;ci<channels.length;ci++){
+      bits=[];bytes=[];var ch=channels[ci];
+      for(var i=ch;i<px.length;i+=4)bits.push(px[i]&1);
+      for(var b=0;b+7<bits.length;b+=8){var v=0;for(var k=0;k<8;k++)v=(v<<1)|bits[b+k];bytes.push(v);}
+      var s=bytesText(new Uint8Array(bytes)),ff=flags(s);
+      for(var q=0;q<ff.length;q++)found.push(ff[q]);
+      if(ff.length)paths.push(['RGB'[ch]+' channel LSB',ff[0]]);
+     }
+     /* Also test interleaved RGB LSB, common in beginner CTF stego. */
+     bits=[];bytes=[];
+     for(var p=0;p<px.length;p+=4){bits.push(px[p]&1,px[p+1]&1,px[p+2]&1);}
+     for(var j=0;j+7<bits.length;j+=8){var vv=0;for(var z=0;z<8;z++)vv=(vv<<1)|bits[j+z];bytes.push(vv);}
+     var all=bytesText(new Uint8Array(bytes)),af=flags(all);for(var a=0;a<af.length;a++)found.push(af[a]);if(af.length)paths.push(['RGB interleaved LSB',af[0]]);
+     found=found.filter(function(x,i,a){return a.indexOf(x)===i;});
+     if(found.length){
+      var html='<div class="studentSummary"><h2>🕵️ تحليل LSB Steganography</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PNG / Pixel Steganography</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>لم يعتمد على النص أو metadata. تم فك أقل بت <strong>LSB</strong> من قنوات ألوان البكسلات والبحث عن صيغة العلم.</p><div class="solvePath">PNG → Pixels → RGB Channels → LSB Bits → Bytes → Flag Hunter</div></div><div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';
+      for(var x=0;x<found.length;x++)html+='<div class="flag">'+esc(found[x])+'</div>';
+      html+='<p>المسار المكتشف: <strong>'+esc(paths[0][0])+'</strong></p></div></div>';result.innerHTML=html;URL.revokeObjectURL(url);resolve(true);
+     }else{URL.revokeObjectURL(url);resolve(false);}
+    }catch(e){URL.revokeObjectURL(url);resolve(false);}
+   };img.src=url;
+  }catch(e){resolve(false);}
+ });
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
@@ -164,6 +198,7 @@ function analyzeFile(file){
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
+   if(!extra.length&&!png.texts.length){var lsbHit=await analyzePngLSB(file,u8,result);if(lsbHit)return;}
    if(!extra.length&&png.texts.length){
     var metaVals=[],directMeta=[];
     for(var mt=0;mt<png.texts.length;mt++){var pv=png.texts[mt];if(pv.value){metaVals.push(pv.value);var mf=flags(pv.value);for(var mi=0;mi<mf.length;mi++)directMeta.push(mf[mi]);}}
