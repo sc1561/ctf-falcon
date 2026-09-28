@@ -41,5 +41,20 @@ if(closeBtn&&dlg) closeBtn.addEventListener('click',()=>{
  try{ if(typeof dlg.close==='function') dlg.close(); else dlg.removeAttribute('open'); }
  catch(e){ dlg.removeAttribute('open'); }
 });
-/* File selection feedback */
-if(file) file.addEventListener('change',function(){if(file.files&&file.files[0]&&typeof window.showSelectedFile==='function')window.showSelectedFile(file.files[0]);});
+/* File selection + drag/drop feedback */
+if(file) file.addEventListener('change',function(){
+ if(file.files&&file.files[0]&&typeof window.showSelectedFile==='function')window.showSelectedFile(file.files[0]);
+});
+const dropZone=document.getElementById('drop');
+if(dropZone&&file){
+ ['dragenter','dragover'].forEach(function(ev){dropZone.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();dropZone.classList.add('dragging');if(e.dataTransfer)e.dataTransfer.dropEffect='copy';});});
+ ['dragleave','dragend'].forEach(function(ev){dropZone.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();dropZone.classList.remove('dragging');});});
+ dropZone.addEventListener('drop',function(e){
+  e.preventDefault();e.stopPropagation();dropZone.classList.remove('dragging');
+  var files=e.dataTransfer&&e.dataTransfer.files;
+  if(!files||!files.length)return;
+  try{var dt=new DataTransfer();dt.items.add(files[0]);file.files=dt.files;}catch(err){}
+  if(typeof window.showSelectedFile==='function')window.showSelectedFile(files[0]);
+  if(typeof window.FalconDroppedFile==='function')window.FalconDroppedFile(files[0]);
+ });
+}
