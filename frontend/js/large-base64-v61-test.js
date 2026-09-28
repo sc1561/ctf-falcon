@@ -13,7 +13,22 @@ function decodedType(u8){
 async function largeBase64(file){
  if(!file||file.size<128)return false;
  var raw=await file.text(),clean=raw.replace(/\s+/g,'');
- if(clean.length<128||clean.length%4!==0||!/^[A-Za-z0-9+/]+={0,2}$/.test(clean))return false;
+ /* V62: do not require the whole TXT to be pure Base64. CTF files can contain
+    labels, quotes or log-like prefixes. Prefer a known file-signature prefix,
+    then fall back to the largest Base64-looking block. */
+ if(clean.length<128||!/^[A-Za-z0-9+/]+={0,2}$/.test(clean)){
+  var compact=raw.replace(/[\r\n\t ]+/g,''),starts=['iVBORw0KGgo','/9j/','JVBERi0','UEsDB'],pos=-1;
+  for(var si=0;si<starts.length;si++){var sp=compact.indexOf(starts[si]);if(sp>=0&&(pos<0||sp<pos))pos=sp;}
+  if(pos>=0){
+   var tail=compact.slice(pos),mm=tail.match(/^[A-Za-z0-9+/]+={0,2}/);clean=mm?mm[0]:'';
+  }else{
+   var blocks=raw.match(/[A-Za-z0-9+/=\r\n\t ]{128,}/g)||[];
+   blocks=blocks.map(function(v){return v.replace(/\s+/g,'');}).filter(function(v){return /^[A-Za-z0-9+/]+={0,2}$/.test(v);}).sort(function(x,y){return y.length-x.length;});
+   clean=blocks[0]||'';
+  }
+ }
+ while(clean.length%4)clean=clean.slice(0,-1);
+ if(clean.length<128)return false;
  var bin;try{bin=atob(clean);}catch(e){return false;}
  var u8=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i)&255;
  var t=decodedType(u8);if(!t)return false;
