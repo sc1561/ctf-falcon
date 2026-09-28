@@ -71,26 +71,48 @@ function analyzePcap(u8,name,result){
   var dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength),magic=dv.getUint32(0,true),le=true;
   if(magic===0xd4c3b2a1)le=false; else if(magic!==0xa1b2c3d4)return false;
   var link=dv.getUint32(20,le);if(link!==1){result.innerHTML='<div class="finding warn">⚠️ PCAP معروف، لكن نوع Link-Layer الحالي غير مدعوم بعد.</div>';return true;}
-  var p=24,packets=0,http=[],hosts={},flows=[];
+  var p=24,packets=0,hosts={},streams={};
   while(p+16<=u8.length){
    var incl=dv.getUint32(p+8,le),s=p+16,e=s+incl;if(e>u8.length)break;packets++;
    if(incl>=54&&u8[s+12]===0x08&&u8[s+13]===0x00){
     var ip=s+14,ihl=(u8[ip]&15)*4,proto=u8[ip+9],src=ipstr(u8,ip+12),dst=ipstr(u8,ip+16);hosts[src]=1;hosts[dst]=1;
     if(proto===6&&ip+ihl+20<=e){
-     var tcp=ip+ihl,sport=(u8[tcp]<<8)|u8[tcp+1],dport=(u8[tcp+2]<<8)|u8[tcp+3],doff=(u8[tcp+12]>>4)*4,ps=tcp+doff;
-     if(ps<e){var payload=bytesText(u8.slice(ps,e));flows.push(src+':'+sport+' → '+dst+':'+dport);if(/^(GET|POST|PUT|HEAD|HTTP\/)/.test(payload)||dport===80||sport===80)http.push(payload);}
+     var tcp=ip+ihl,sport=(u8[tcp]<<8)|u8[tcp+1],dport=(u8[tcp+2]<<8)|u8[tcp+3],seq=dv.getUint32(tcp+4,false),doff=(u8[tcp+12]>>4)*4,ps=tcp+doff;
+     if(ps<e){
+      var key=src+':'+sport+'>'+dst+':'+dport;
+      if(!streams[key])streams[key]=[];
+      streams[key].push({seq:seq,data:u8.slice(ps,e)});
+     }
     }
    } p=e;
   }
-  var combined=http.join('\n'),direct=flags(combined),vals=[],re=/(?:^|[:=\s])([A-Za-z0-9+\/]{12,}={0,2})(?=\r?$|[\s&])/gm,m;
-  while((m=re.exec(combined))!==null)vals.push(m[1]);
-  var html='<div class="studentSummary"><h2>🌐 تحليل الشبكة</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PCAP / Network Analysis</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>قرأ <strong>'+packets+'</strong> حزم، ووجد '+Object.keys(hosts).length+' عناوين IP و<strong>'+http.length+'</strong> حمولة HTTP.</p></div>';
-  if(direct.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var i=0;i<direct.length;i++)html+='<div class="flag">'+esc(direct[i])+'</div>';result.innerHTML=html+'</div></div>';return true;}
+  var rebuilt=[],streamCount=0;
+  Object.keys(streams).forEach(function(key){
+   var segs=streams[key];segs.sort(function(a,b){return a.seq-b.seq;});
+   var bytes=[],next=null;
+   for(var i=0;i<segs.length;i++){
+    var seg=segs[i],data=seg.data,startAt=0;
+    if(next!==null&&seg.seq<next)startAt=Math.min(data.length,next-seg.seq);
+    for(var j=startAt;j<data.length;j++)bytes.push(data[j]);
+    var endSeq=seg.seq+data.length;if(next===null||endSeq>next)next=endSeq;
+   }
+   if(bytes.length){streamCount++;rebuilt.push({key:key,text:bytesText(new Uint8Array(bytes))});}
+  });
+  var http=[];
+  for(var r=0;r<rebuilt.length;r++)if(/HTTP\/|GET |POST |Host:|Content-Type:|X-[A-Za-z0-9-]+:/i.test(rebuilt[r].text))http.push(rebuilt[r].text);
+  var combined=http.join('\n'),direct=flags(combined),vals=[],m;
+  var headerRe=/^[A-Za-z0-9-]+:\s*([A-Za-z0-9+\/]{12,}={0,2})\s*$/gm;
+  while((m=headerRe.exec(combined))!==null)vals.push(m[1]);
+  var genericRe=/(?:^|[=:\s])([A-Za-z0-9+\/]{20,}={0,2})(?=\r?$|[\s&])/gm;
+  while((m=genericRe.exec(combined))!==null)vals.push(m[1]);
+  vals=vals.filter(function(v,i,a){return a.indexOf(v)===i;});
+  var html='<div class="studentSummary"><h2>🌐 تحليل الشبكة</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PCAP / TCP Stream Analysis</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>قرأ <strong>'+packets+'</strong> حزم، وأعاد بناء <strong>'+streamCount+'</strong> TCP Stream، ووجد <strong>'+http.length+'</strong> تدفق HTTP.</p><div class="solvePath">PCAP → TCP Segments → Stream Reassembly → HTTP</div></div>';
+  if(direct.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';for(var q=0;q<direct.length;q++)html+='<div class="flag">'+esc(direct[q])+'</div>';result.innerHTML=html+'</div></div>';return true;}
   if(vals.length){
-   html+='<div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>وجد بيانات مشفرة داخل HTTP وسيتم إرسالها تلقائيًا إلى Smart Decoder.</p><div class="solvePath">PCAP → HTTP → Encoded Data → Decoder</div></div></div>';result.innerHTML=html;
-   vals.sort(function(a,b){return b.length-a.length;});setTimeout(function(){analyzeText(vals[0],true);},100);return true;
+   html+='<div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>بعد إعادة تجميع TCP وجد النظام بيانات مرمّزة داخل HTTP، وسيحللها تلقائيًا.</p><div class="solvePath">TCP Stream → HTTP → Encoded Data → Smart Decoder</div></div></div>';result.innerHTML=html;
+   vals.sort(function(a,b){return b.length-a.length;});setTimeout(function(){analyzeText(vals[0],true);},120);return true;
   }
-  html+='<div class="studentCard next"><b>3️⃣ النتيجة</b><p>تم تحليل الحزم، لكن لم يظهر Flag أو ترميز واضح داخل HTTP. الخطوة التالية: DNS وTCP Stream reconstruction.</p></div></div>';result.innerHTML=html;return true;
+  html+='<div class="studentCard next"><b>3️⃣ النتيجة</b><p>تمت إعادة تجميع TCP، لكن لم يظهر ترميز واضح. الخطوة التالية ستكون تحليل DNS أو بروتوكولات أخرى.</p></div></div>';result.innerHTML=html;return true;
  }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في PCAP Analyzer: '+esc(e.message||e)+'</div>';return true;}
 }
 function analyzeFile(file){
