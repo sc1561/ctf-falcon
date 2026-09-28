@@ -1,0 +1,17 @@
+# CTF Falcon V8 - Log & Incident Analysis Challenge
+# Authorized educational CTF dataset
+2026-09-28T06:40:01Z 10.20.4.15 GET /index.html HTTP/1.1 200 user=student
+2026-09-28T06:40:07Z 10.20.4.22 GET /assets/app.js HTTP/1.1 200
+2026-09-28T06:41:11Z 10.20.4.77 POST /login HTTP/1.1 401 user=admin msg="invalid password"
+2026-09-28T06:41:14Z 10.20.4.77 POST /login HTTP/1.1 401 user=admin msg="invalid password"
+2026-09-28T06:41:17Z 10.20.4.77 POST /login HTTP/1.1 401 user=admin msg="invalid password"
+2026-09-28T06:41:25Z 10.20.4.31 GET /help HTTP/1.1 200
+2026-09-28T06:42:02Z 10.20.4.77 POST /login HTTP/1.1 403 user=admin msg="blocked"
+2026-09-28T06:42:33Z 10.20.4.18 GET /profile HTTP/1.1 200
+2026-09-28T06:43:09Z 10.20.4.77 GET /api/session HTTP/1.1 401 msg="unauthorized"
+2026-09-28T06:43:12Z 10.20.4.77 GET /api/debug HTTP/1.1 200 trace_id=8f2a91
+2026-09-28T06:43:13Z 10.20.4.77 GET /api/debug/export HTTP/1.1 200 evidence=Q1RGe0ZBTENPTl9MT0dfSU5DSURFTlRfU1VDQ0VTU30=
+2026-09-28T06:43:20Z 10.20.4.77 GET /logout HTTP/1.1 200
+2026-09-28T06:44:01Z 10.20.4.15 GET /dashboard HTTP/1.1 200
+2026-09-28T06:44:19Z 10.20.4.31 GET /favicon.ico HTTP/1.1 404
+2026-09-28T06:45:03Z 10.20.4.22 GET /status HTTP/1.1 200
