@@ -301,12 +301,12 @@ function analyzeLogs(raw,name,result){
   if(/failed|invalid|unauthorized|forbidden|blocked|\s40[13]\s/i.test(l))fails++;
   var f=flags(l);for(var j=0;j<f.length;j++)hits.push(f[j]);
   /* Send encoded-looking log values to the proven recursive text decoder. */
-  var t=l.match(/[A-Za-z0-9+\/_=-]{20,}/g)||[];
+  /* Extract the encoded VALUE, not the whole key=value pair (e.g. evidence=...). */
+  var t=l.match(/(?:^|[\s"'=:])([A-Za-z0-9+\/_-]{20,}={0,2})(?=$|[\s"',;])/g)||[];
   for(j=0;j<t.length;j++){
-   var token=t[j];
-   /* Avoid timestamps/IP-like noise and retain likely Base64/Hex evidence. */
+   var token=t[j].replace(/^[\s"'=:]+|[\s"',;]+$/g,'');
    if(/^\d+$/.test(token))continue;
-   if(/^[0-9a-fA-F]{24,}$/.test(token)||(/^[A-Za-z0-9+\/_-]+={0,2}$/.test(token)&&token.length%4===0)){
+   if(/^[0-9a-fA-F]{24,}$/.test(token)||(/^[A-Za-z0-9+\/_-]+={0,2}$/.test(token)&&token.replace(/=/g,'').length>=20)){
     evidence.push(token);
    }
   }
