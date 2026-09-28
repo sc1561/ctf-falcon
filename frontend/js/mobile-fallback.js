@@ -347,6 +347,10 @@ function showSelectedFile(file){
  var kb=file.size<1024?file.size+' B':file.size<1048576?(file.size/1024).toFixed(1)+' KB':(file.size/1048576).toFixed(2)+' MB';
  box.className='fileStatus ready';box.innerHTML='✅ <strong>تم اختيار الملف بنجاح</strong><br><span>'+esc(file.name)+'</span> · '+kb;
 }
+function visualRescueHtml(type,url,ext){
+ var manual='1) تم تحويل 0/1 إلى مجموعات 8-bit. 2) تم تحويل كل مجموعة إلى Byte. 3) تم التعرف على توقيع '+type+'. 4) افتح الصورة المستعادة وابحث بصريًا عن النص بصيغة Flag.';
+ return '<div class="studentCard next"><b>🆘 Smart Rescue Mode</b><p><strong>لم أستطع استخراج العلم بصريًا بشكل موثوق، لكن مسار الحل معروف.</strong></p><div class="solvePath">Binary → 8-bit → Bytes → '+type+' → Visual Inspection → Flag</div><p>'+manual+'</p><p><a href="'+url+'" download="falcon_recovered.'+ext+'">💾 حفظ الصورة المستعادة</a></p><p><strong>أدوات مساعدة خارجية:</strong></p><p><a href="https://www.aperisolve.com/" target="_blank" rel="noopener noreferrer">🖼️ AperiSolve — تحليل الصور وSteganography</a><br><a href="https://georgeom.net/StegOnline/upload" target="_blank" rel="noopener noreferrer">🔍 StegOnline — فحص القنوات وLSB</a><br><a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener noreferrer">🧪 CyberChef — Binary / Hex / Base64 والتحويلات</a></p><small>⚠️ عند استخدام موقع خارجي سيتم رفع الملف إليه؛ استخدمه فقط مع ملفات CTF التدريبية المصرح بها.</small></div>';
+}
 function analyzeBinaryDigitFile(raw,name,result){
  var bits=String(raw||'').replace(/\s+/g,'');
  if(bits.length<64||!/^[01]+$/.test(bits)||bits.length%8!==0)return false;
@@ -374,7 +378,7 @@ function analyzeBinaryDigitFile(raw,name,result){
      status.innerHTML='⏳ جارٍ انتظار محرك القراءة البصرية...';
      for(var ow=0;ow<20&&typeof Tesseract==='undefined';ow++)await new Promise(function(r){setTimeout(r,250);});
     }
-    if(typeof Tesseract==='undefined'){status.className='finding warn';status.innerHTML='⚠️ تعذر تحميل محرك OCR. تحقق من اتصال الإنترنت ثم أعد تحميل الصفحة.';return;}
+    if(typeof Tesseract==='undefined'){status.className='finding warn';status.innerHTML='⚠️ تعذر تحميل محرك OCR.'+visualRescueHtml(type,url,ext);return;}
     var img=byId('falconRecoveredImage'),targets=[url];
     if(img&&img.naturalWidth){
      var scales=[2,3],modes=['normal','gray','threshold'];
@@ -398,7 +402,7 @@ function analyzeBinaryDigitFile(raw,name,result){
      }
     }
     if(vf.length){status.className='finding success';status.innerHTML='<b>🚩 تم استخراج العلم تلقائيًا من الصورة</b><div class="solvePath">Binary → '+type+' → Image Enhancement → OCR → Flag</div>'+vf.map(function(x){return '<div class="flag">'+esc(x)+'</div>';}).join('');}
-    else{status.className='finding warn';status.innerHTML='تم تنفيذ OCR متعدد المحاولات مع التكبير وGrayscale وThreshold، لكن لم تُكتشف صيغة Flag واضحة تلقائيًا.';}
+    else{status.className='finding warn';status.innerHTML='تم تنفيذ OCR متعدد المحاولات مع التكبير وGrayscale وThreshold، لكن لم تُكتشف صيغة Flag واضحة تلقائيًا.'+visualRescueHtml(type,url,ext);}
    }catch(e){status.className='finding warn';status.innerHTML='تعذر إكمال القراءة البصرية تلقائيًا: '+esc(e.message||e);}
   },100);
  }
