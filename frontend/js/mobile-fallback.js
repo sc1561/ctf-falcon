@@ -12,9 +12,9 @@ var MORSE={'.-':'A','-...':'B','-.-.':'C','-..':'D','.':'E','..-.':'F','--.':'G'
 function morseDecode(s){var t=String(s).trim();if(!/^[.\-\/\s]+$/.test(t))return '';var bad=false,v=t.split(/\s*\/\s*/).map(function(w){return w.split(/\s+/).map(function(x){if(!MORSE[x]){bad=true;return '?';}return MORSE[x];}).join('');}).join(' ');return bad?'':v;}
 function quality(s){s=String(s||'');if(!s)return 0;var printable=(s.match(/[\x20-\x7e\r\n\t]/g)||[]).length/Math.max(1,s.length),score=Math.round(printable*40);if(flags(s).length)score+=200;if(/flag|ctf|moe|secret|password|key|token/i.test(s))score+=60;if(/[{}]/.test(s))score+=10;return score;}
 function candidates(t){var a=[],z;t=String(t||'').trim();if(/^[A-Za-z0-9+/=\s]+$/.test(t)&&t.replace(/\s/g,'').length>=8&&(t.replace(/\s/g,'').length%4===0)){z=b64(t);if(z)a.push(['Base64',z]);}if(/^(?:[0-9a-f]{2}\s*){4,}$/i.test(t)){z=hexDecode(t);if(z)a.push(['Hex',z]);}if(/^[01\s]{8,}$/.test(t)){z=binaryDecode(t);if(z)a.push(['Binary',z]);}z=urlDecode(t);if(z)a.push(['URL Decode',z]);if(/^[.\-\/\s]+$/.test(t)&&t.length>5){z=morseDecode(t);if(z)a.push(['Morse',z]);}if(/[A-Za-z]{4}/.test(t))a.push(['ROT13',rot13(t)]);if((t.match(/[A-Za-z]/g)||[]).length>=6){for(var n=1;n<26;n++){z=rotN(t,n);if(/flag|ctf|moe|secret|key/i.test(z))a.push(['Caesar '+n,z]);}}return a;}
-function analyzeText(raw,deep){
- var result=byId('result'),queue=[{v:raw,p:'Original',d:0}],seen={},rows=[],found=[],limit=deep?6:3,count=0,best={score:quality(raw),path:'Original',value:raw};
- seen[raw]=1;var direct=flags(raw);for(var df=0;df<direct.length;df++)found.push({flag:direct[df],path:'Original'});
+function analyzeText(raw,deep,source){
+ var result=byId('result'),root=source||'Original',queue=[{v:raw,p:root,d:0}],seen={},rows=[],found=[],limit=deep?6:3,count=0,best={score:quality(raw),path:root,value:raw};
+ seen[raw]=1;var direct=flags(raw);for(var df=0;df<direct.length;df++)found.push({flag:direct[df],path:root});
  while(queue.length&&count<(deep?240:90)){
   var x=queue.shift();if(x.d>=limit)continue;var cs=candidates(x.v);
   cs.sort(function(a,b){return quality(b[1])-quality(a[1]);});
@@ -193,7 +193,7 @@ function analyzePngLSB(file,u8,result){
      if(best){
       result.innerHTML='<div class="studentSummary"><h2>🧠 Challenge Brain</h2><div class="studentCard"><b>1️⃣ تم فك LSB</b><p>لم يظهر Flag مباشر، لكن تم استخراج بيانات قابلة للتحليل من <strong>'+esc(best.label)+'</strong>.</p></div><div class="studentCard next"><b>2️⃣ متابعة تلقائية</b><p>سيتم إرسال ناتج LSB إلى Smart Decoder بدل التوقف هنا.</p><div class="solvePath">PNG → LSB → Bytes → Encoded Data → Smart Decoder</div></div></div>';
       URL.revokeObjectURL(url);
-      setTimeout(function(){analyzeText(best.text,true,'LSB '+best.label);},120);
+      setTimeout(function(){analyzeText(best.text,true,'PNG → LSB → '+best.label);},120);
       resolve(true);return;
      }
      URL.revokeObjectURL(url);resolve(false);
