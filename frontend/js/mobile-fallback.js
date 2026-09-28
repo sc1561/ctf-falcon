@@ -275,7 +275,22 @@ async function analyzeEmbeddedContainer(u8,result){
   for(var z=0;z<nested.length;z++){
    try{
     var nz=await JSZip.loadAsync(nested[z].data),nn=Object.keys(nz.files);
-    for(var zi=0;zi<nn.length;zi++){var nf=nz.files[nn[zi]];if(nf.dir)continue;var nd=await nf.async('uint8array'),nt=bytesText(nd),nq=[{v:nt,p:nested[z].path+' → '+nf.name,d:0}],ns={};ns[nt]=1;
+    for(var zi=0;zi<nn.length;zi++){var nf=nz.files[nn[zi]];if(nf.dir)continue;var nd=await nf.async('uint8array'),nt=bytesText(nd),np=nested[z].path+' → '+nf.name;
+     /* Combined challenge routing: nested logs use the proven incident evidence extractor,
+        instead of treating the entire log as one encoded text blob. */
+     if(/\.(log|txt)$/i.test(nf.name)&&looksLikeLog(nt)){
+      var ev=[],ls=nt.split(/\r?\n/);
+      for(var li=0;li<ls.length;li++){
+       var tm=ls[li].match(/(?:^|[\s"'=:])([A-Za-z0-9+\/_-]{20,}={0,2})(?=$|[\s"',;])/g)||[];
+       for(var tj=0;tj<tm.length;tj++){var tok=tm[tj].replace(/^[\s"'=:]+|[\s"',;]+$/g,'');if(!/^\d+$/.test(tok))ev.push(tok);}
+      }
+      ev.sort(function(a,b){return b.length-a.length;});
+      for(var ei=0;ei<ev.length;ei++){
+       var eq=[{v:ev[ei],p:np+' → Incident Evidence',d:0}],es={};es[ev[ei]]=1;
+       while(eq.length){var ex=eq.shift(),eff=flags(ex.v);for(var ef=0;ef<eff.length;ef++)hits.push({flag:eff[ef],path:ex.p});if(ex.d>=6)continue;var ecs=candidates(ex.v);ecs.sort(function(a,b){return quality(b[1])-quality(a[1]);});for(var ec=0;ec<ecs.length;ec++){var evv=ecs[ec][1];if(evv&&evv.length<100000&&!es[evv]){es[evv]=1;eq.push({v:evv,p:ex.p+' → '+ecs[ec][0],d:ex.d+1});}}}
+      }
+     }
+     var nq=[{v:nt,p:np,d:0}],ns={};ns[nt]=1;
      while(nq.length){var nx=nq.shift(),nff=flags(nx.v);for(var nqf=0;nqf<nff.length;nqf++)hits.push({flag:nff[nqf],path:nx.p});if(nx.d>=6)continue;var ncs=candidates(nx.v);ncs.sort(function(a,b){return quality(b[1])-quality(a[1]);});for(var nc=0;nc<ncs.length;nc++){var nv=ncs[nc][1];if(nv&&nv.length<100000&&!ns[nv]){ns[nv]=1;nq.push({v:nv,p:nx.p+' → '+ncs[nc][0],d:nx.d+1});}}}
     }
    }catch(ne){}
