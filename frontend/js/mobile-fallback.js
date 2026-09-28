@@ -225,11 +225,14 @@ async function analyzeEmbeddedContainer(u8,result){
   for(var n=0;n<names.length;n++){
    var zf=zip.files[names[n]];if(zf.dir)continue;
    var data=await zf.async('uint8array'),txt=bytesText(data);
-   entries.push({name:zf.name,text:txt});
+   entries.push({name:zf.name,text:txt,data:data});
   }
-  var hits=[],best=null;
+  var hits=[],best=null,nested=[];
   for(var e=0;e<entries.length;e++){
-   var entry=entries[e],queue=[{v:entry.text,p:'Binary → Embedded ZIP → '+entry.name,d:0}],seen={};seen[entry.text]=1;
+   var entry=entries[e],nestedOff=-1;
+   for(var ni=0;ni+3<entry.data.length;ni++){if(entry.data[ni]===0x50&&entry.data[ni+1]===0x4b&&entry.data[ni+2]===0x03&&entry.data[ni+3]===0x04){nestedOff=ni;break;}}
+   if(nestedOff>=0){nested.push({name:entry.name,data:entry.data.slice(nestedOff),path:'Binary → Embedded ZIP → '+entry.name+' → Embedded ZIP'});}
+   var queue=[{v:entry.text,p:'Binary → Embedded ZIP → '+entry.name,d:0}],seen={};seen[entry.text]=1;
    while(queue.length){
     var x=queue.shift(),ff=flags(x.v);
     for(var q=0;q<ff.length;q++)hits.push({flag:ff[q],path:x.p});
@@ -238,6 +241,14 @@ async function analyzeEmbeddedContainer(u8,result){
     var cs=candidates(x.v);cs.sort(function(a,b){return quality(b[1])-quality(a[1]);});
     for(var k=0;k<cs.length;k++){var v=cs[k][1];if(v&&v.length<100000&&!seen[v]){seen[v]=1;queue.push({v:v,p:x.p+' → '+cs[k][0],d:x.d+1});}}
    }
+  }
+  for(var z=0;z<nested.length;z++){
+   try{
+    var nz=await JSZip.loadAsync(nested[z].data),nn=Object.keys(nz.files);
+    for(var zi=0;zi<nn.length;zi++){var nf=nz.files[nn[zi]];if(nf.dir)continue;var nd=await nf.async('uint8array'),nt=bytesText(nd),nq=[{v:nt,p:nested[z].path+' → '+nf.name,d:0}],ns={};ns[nt]=1;
+     while(nq.length){var nx=nq.shift(),nff=flags(nx.v);for(var nqf=0;nqf<nff.length;nqf++)hits.push({flag:nff[nqf],path:nx.p});if(nx.d>=6)continue;var ncs=candidates(nx.v);ncs.sort(function(a,b){return quality(b[1])-quality(a[1]);});for(var nc=0;nc<ncs.length;nc++){var nv=ncs[nc][1];if(nv&&nv.length<100000&&!ns[nv]){ns[nv]=1;nq.push({v:nv,p:nx.p+' → '+ncs[nc][0],d:nx.d+1});}}}
+    }
+   }catch(ne){}
   }
   var html='<div class="studentSummary"><h2>'+(hits.length?'🎉 تم حل تحدي Digital Forensics':'🧬 Digital Forensics')+'</h2><div class="studentCard"><b>1️⃣ المسار المكتشف</b><div class="solvePath">Binary → Embedded ZIP → '+entries.length+' file(s)</div><p>الملفات: '+esc(entries.map(function(x){return x.name;}).join('، '))+'</p></div>';
   if(hits.length){
