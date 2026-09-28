@@ -38,7 +38,7 @@ function analyzeText(raw,deep,source){
   var rf=ranked[q].flag,chosen=rf,cp=ranked[q].path;
   /* Preserve the CTF/FLAG/MOE prefix and ROT13 only the payload inside braces.
      Rotating the whole flag changes CTF to PGS, so the old validity check could never pass. */
-  var fm=rf.match(/^((?:CTF|FLAG|MOE)[_\\- ]?)\\{([^{}]+)\\}$/i);
+  var fm=rf.match(/^((?:CTF|FLAG|MOE)[_\- ]?)\{([^{}]+)\}$/i);
   if(fm&&/[A-Za-z]{4}/.test(fm[2])){
    var payload13=rot13(fm[2]),rr=fm[1]+'{'+payload13+'}';
    if(rr!==rf){chosen=rr;cp=cp+' → ROT13 payload';}
