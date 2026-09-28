@@ -183,12 +183,23 @@ function analyzePngLSB(file,u8,result){
      /* No direct flag: send plausible LSB byte streams into the same chained decoder. */
      var best=null;
      for(var s=0;s<streams.length;s++){
-      var t=streams[s].text.split('\x00')[0].trim();
-      if(t.length<8)continue;
-      var sc=quality(t);
-      if(/^[A-Za-z0-9+\/=\s]+$/.test(t)&&t.replace(/\s/g,'').length%4===0)sc+=120;
-      if(/^(?:[0-9a-f]{2}\s*){4,}$/i.test(t))sc+=100;
-      if(!best||sc>best.score)best={label:streams[s].label,text:t,score:sc};
+      var rawLsb=streams[s].text, variants=[];
+      var first=rawLsb.split('\x00')[0].trim(); if(first.length>=8)variants.push(first);
+      /* LSB payloads often have padding/junk before or after the encoded token.
+         Extract long Base64/Hex-looking runs instead of requiring the entire byte stream to match. */
+      var bm=rawLsb.match(/[A-Za-z0-9+\/]{12,}={0,2}/g)||[];
+      for(var bi=0;bi<bm.length;bi++)variants.push(bm[bi]);
+      var hm=rawLsb.match(/(?:[0-9A-Fa-f]{2}[\s:]*){6,}/g)||[];
+      for(var hi=0;hi<hm.length;hi++)variants.push(hm[hi].replace(/[:\s]/g,''));
+      for(var vi=0;vi<variants.length;vi++){
+       var t=variants[vi].trim(); if(t.length<8)continue;
+       var sc=quality(t);
+       var compact=t.replace(/\s/g,'');
+       if(/^[A-Za-z0-9+\/=]+$/.test(compact)&&compact.length%4===0)sc+=180;
+       if(/^(?:[0-9a-f]{2}){4,}$/i.test(compact))sc+=140;
+       var ff=flags(t); if(ff.length)sc+=500;
+       if(!best||sc>best.score)best={label:streams[s].label,text:t,score:sc};
+      }
      }
      if(best){
       result.innerHTML='<div class="studentSummary"><h2>🧠 Challenge Brain</h2><div class="studentCard"><b>1️⃣ تم فك LSB</b><p>لم يظهر Flag مباشر، لكن تم استخراج بيانات قابلة للتحليل من <strong>'+esc(best.label)+'</strong>.</p></div><div class="studentCard next"><b>2️⃣ متابعة تلقائية</b><p>سيتم إرسال ناتج LSB إلى Smart Decoder بدل التوقف هنا.</p><div class="solvePath">PNG → LSB → Bytes → Encoded Data → Smart Decoder</div></div></div>';
