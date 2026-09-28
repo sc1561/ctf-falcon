@@ -370,7 +370,11 @@ function analyzeBinaryDigitFile(raw,name,result){
   setTimeout(async function(){
    var status=byId('visualFlagStatus');if(!status)return;
    try{
-    if(typeof Tesseract==='undefined'){status.className='finding warn';status.innerHTML='⚠️ Visual Flag Hunter جاهز، لكن محرك OCR لم يتم تحميله في هذه الصفحة.';return;}
+    if(typeof Tesseract==='undefined'){
+     status.innerHTML='⏳ جارٍ انتظار محرك القراءة البصرية...';
+     for(var ow=0;ow<20&&typeof Tesseract==='undefined';ow++)await new Promise(function(r){setTimeout(r,250);});
+    }
+    if(typeof Tesseract==='undefined'){status.className='finding warn';status.innerHTML='⚠️ تعذر تحميل محرك OCR. تحقق من اتصال الإنترنت ثم أعد تحميل الصفحة.';return;}
     var rec=await Tesseract.recognize(url,'eng'),txt=(rec&&rec.data&&rec.data.text)||'',vf=flags(txt);
     if(vf.length){status.className='finding success';status.innerHTML='<b>🚩 تم استخراج العلم تلقائيًا من الصورة</b><div class="solvePath">Binary → '+type+' → OCR → Flag</div>'+vf.map(function(x){return '<div class="flag">'+esc(x)+'</div>';}).join('');}
     else{status.className='finding warn';status.innerHTML='تم تحليل الصورة بصريًا، لكن لم تُكتشف صيغة Flag واضحة تلقائيًا.';}
