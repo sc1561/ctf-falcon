@@ -39,7 +39,7 @@ function runText(raw,deep,source){
  result.className='result';
  if(!raw){result.innerHTML='<div class="finding warn">⚠️ لم يصل أي نص إلى محرك التحليل.</div>';return false;}
  result.innerHTML='<div class="finding">⏳ بدأ التحليل — تم استلام <b>'+raw.length+'</b> حرفًا من '+esc(source||'الإدخال')+'.</div>';
- setTimeout(function(){try{analyzeText(raw,!!deep);}catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في محرك التحليل: '+esc(e.message||e)+'</div>';}},20);
+ setTimeout(function(){try{analyzeText(raw,!!deep,source);}catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في محرك التحليل: '+esc(e.message||e)+'</div>';}},20);
  return false;
 }
 window.FalconSelfTest=function(){
