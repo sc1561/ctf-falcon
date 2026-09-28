@@ -198,7 +198,14 @@ function analyzeFile(file){
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
-   if(!extra.length&&!png.texts.length){var lsbHit=await analyzePngLSB(file,u8,result);if(lsbHit)return;}
+   if(!extra.length&&!png.texts.length){
+    html+='<div class="studentCard"><b>2️⃣ مرحلة Steganography</b><p>لا توجد بيانات بعد IEND ولا metadata نصية. سيبدأ صقر الآن فحص <strong>LSB داخل البكسلات تلقائيًا</strong>…</p><div class="solvePath">PNG → Pixels → RGB → LSB</div></div></div>';
+    result.innerHTML=html;
+    var lsbHit=await analyzePngLSB(file,u8,result);
+    if(lsbHit)return;
+    result.innerHTML='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG / Steganography</p></div><div class="studentCard next"><b>2️⃣ نتيجة LSB</b><p>تم فحص LSB في قنوات R وG وB وكذلك RGB المتداخل، ولم تظهر صيغة Flag واضحة.</p></div></div>';
+    return;
+   }
    if(!extra.length&&png.texts.length){
     var metaVals=[],directMeta=[];
     for(var mt=0;mt<png.texts.length;mt++){var pv=png.texts[mt];if(pv.value){metaVals.push(pv.value);var mf=flags(pv.value);for(var mi=0;mi<mf.length;mi++)directMeta.push(mf[mi]);}}
