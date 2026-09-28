@@ -33,6 +33,11 @@ function analyzeText(raw,deep){
  if(!rows.length)html+='<div class="finding warn">لم يتم اكتشاف ترميز مدعوم في النص الحالي.</div>';html+='</div></details>';
  result.innerHTML=html;result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});
 }
+window.FalconSelfTest=function(){
+ var plain='CTF{FALCON_ENGINE_OK}',rot=rot13(plain),encoded=btoa(rot),ta=byId('text');
+ if(ta)ta.value=encoded;
+ analyzeText(encoded,true);
+};
 window.FalconRun=function(deep){
  var result=byId('result'),ta=byId('text'),fi=byId('file');
  result.className='result';result.innerHTML='<div class="finding">⏳ بدأ التحليل...</div>';
