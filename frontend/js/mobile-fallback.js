@@ -347,6 +347,8 @@ function analyzeFile(file){
    }else html+='<div class="studentCard next"><b>2️⃣ النتيجة</b><p>لم توجد بيانات بعد IEND. سيحتاج الاختبار التالي إلى فحص metadata/chunks أو LSB.</p></div>';
    html+='</div>';result.innerHTML=html;return;
   }
+  /* Route textual log files to the existing Log / Incident engine before generic file fallback. */
+  if(/\.(log|txt)$/i.test(lower)||looksLikeLog(raw)){return analyzeLogs(raw,name,result);}
   html='<div class="studentSummary"><h2>📂 تحليل الملف</h2><div class="studentCard"><b>نوع الملف</b><p>'+esc(name)+'</p></div>';
   if(allFlags.length){html+='<div class="studentCard success"><b>🚩 علم محتمل</b>';for(var j=0;j<allFlags.length;j++)html+='<div class="flag">'+esc(allFlags[j])+'</div>';html+='</div>';}else html+='<div class="studentCard next"><b>النتيجة</b><p>لم يظهر Flag نصي مباشر. ستضاف محللات متخصصة لهذا النوع ضمن اختباراتنا التالية.</p></div>';
   result.innerHTML=html+'</div>';
