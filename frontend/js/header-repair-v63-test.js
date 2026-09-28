@@ -28,7 +28,7 @@ async function repairHeader(file){
  var before=hex2(u8,12),fixed=new Uint8Array(u8);fixed[0]=0xFF;fixed[1]=0xD8;
  var after=hex2(fixed,12),blob=new Blob([fixed],{type:'image/jpeg'}),url=URL.createObjectURL(blob),result=document.getElementById('result');
  result.className='result';
- result.innerHTML='<div class="studentSummary"><h2>🩺 File Header Repair — V63 TEST</h2><div class="studentCard"><b>1️⃣ ماذا اكتشف صقر؟</b><p>الملف لا يبدأ بتوقيع JPEG الصحيح، لكن البنية التالية للهيدر تطابق JPEG بدرجة عالية.</p><p><strong>قبل:</strong> <code>'+esc(before)+'</code></p><p><strong>بعد الإصلاح الآمن:</strong> <code>'+esc(after)+'</code></p><div class="solvePath">Broken File → Header Inspection → JPEG Signature Mismatch → Repair FF D8</div></div><div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم تعديل أول بايتين فقط داخل نسخة مؤقتة في الذاكرة. الملف الأصلي لم يتغير.</p><img id="falconV63Image" src="'+url+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_header_repaired.jpg">💾 حفظ JPEG المستعاد</a></p></div><div class="studentCard"><b>3️⃣ Visual Evidence Hunter</b><div id="falconV63Ocr" class="finding">⏳ جارٍ قراءة النص الظاهر داخل الصورة...</div><div class="solvePath">JPEG Repair → Reconstruct → OCR → Flag</div></div></div>';
+ result.innerHTML='<div class="studentSummary"><h2>🩺 File Header Repair — V64 TEST</h2><div class="studentCard"><b>1️⃣ ماذا اكتشف صقر؟</b><p>الملف لا يبدأ بتوقيع JPEG الصحيح، لكن البنية التالية للهيدر تطابق JPEG بدرجة عالية.</p><p><strong>قبل:</strong> <code>'+esc(before)+'</code></p><p><strong>بعد الإصلاح الآمن:</strong> <code>'+esc(after)+'</code></p><div class="solvePath">Broken File → Header Inspection → JPEG Signature Mismatch → Repair FF D8</div></div><div class="studentCard success"><b>2️⃣ الملف المستعاد</b><p>تم تعديل أول بايتين فقط داخل نسخة مؤقتة في الذاكرة. الملف الأصلي لم يتغير.</p><img id="falconV63Image" src="'+url+'" style="max-width:100%;height:auto;border-radius:12px;margin-top:10px"><p><a href="'+url+'" download="falcon_header_repaired.jpg">💾 حفظ JPEG المستعاد</a></p></div><div class="studentCard"><b>3️⃣ Visual Evidence Hunter</b><div id="falconV63Ocr" class="finding">⏳ جارٍ قراءة النص الظاهر داخل الصورة...</div><div class="solvePath">JPEG Repair → Reconstruct → OCR → Flag</div></div></div>';
  setTimeout(async function(){
   var st=document.getElementById('falconV63Ocr');if(!st)return;
   try{
@@ -36,10 +36,30 @@ async function repairHeader(file){
    if(typeof Tesseract==='undefined'){st.className='finding warn';st.innerHTML='⚠️ تم إصلاح JPEG، لكن OCR غير متاح.';return;}
    var img=document.getElementById('falconV63Image'),targets=[url];
    if(img&&img.naturalWidth){
-    var c=document.createElement('canvas'),cx=c.getContext('2d');c.width=img.naturalWidth*2;c.height=img.naturalHeight*2;cx.drawImage(img,0,0,c.width,c.height);targets.push(c.toDataURL('image/png'));
+    /* V64 visual pass: preserve the successful header repair and only improve OCR.
+       Try full image + scaled/gray/threshold variants + top/bottom crops. */
+    var scales=[2,3,4],modes=['normal','gray','threshold'];
+    for(var si=0;si<scales.length;si++)for(var mi=0;mi<modes.length;mi++){
+     var sc=scales[si],cv=document.createElement('canvas'),cx=cv.getContext('2d');
+     cv.width=img.naturalWidth*sc;cv.height=img.naturalHeight*sc;cx.drawImage(img,0,0,cv.width,cv.height);
+     if(modes[mi]!=='normal'){
+      var id=cx.getImageData(0,0,cv.width,cv.height),d=id.data;
+      for(var pi=0;pi<d.length;pi+=4){var g=Math.round(.299*d[pi]+.587*d[pi+1]+.114*d[pi+2]);if(modes[mi]==='threshold')g=g>145?255:0;d[pi]=d[pi+1]=d[pi+2]=g;}cx.putImageData(id,0,0);
+     }
+     targets.push(cv.toDataURL('image/png'));
+    }
+    var crops=[[0,.55,1,.45],[0,0,1,.45]];
+    for(var ci=0;ci<crops.length;ci++){
+     var cr=crops[ci],cc=document.createElement('canvas'),ccx=cc.getContext('2d'),cw=img.naturalWidth,ch=Math.floor(img.naturalHeight*cr[3]),sy=Math.floor(img.naturalHeight*cr[1]);
+     cc.width=cw*4;cc.height=ch*4;ccx.drawImage(img,0,sy,cw,ch,0,0,cc.width,cc.height);targets.push(cc.toDataURL('image/png'));
+    }
    }
-   var found=[];
-   for(var i=0;i<targets.length&&!found.length;i++){var rec=await Tesseract.recognize(targets[i],'eng'),txt=(rec&&rec.data&&rec.data.text)||'';found=genericFlags(txt);}
+   var found=[],allText='';
+   for(var i=0;i<targets.length&&!found.length;i++){
+    st.innerHTML='⏳ Visual Evidence Hunter: محاولة '+(i+1)+' من '+targets.length+'...';
+    var rec=await Tesseract.recognize(targets[i],'eng'),txt=(rec&&rec.data&&rec.data.text)||'';allText+='\\n'+txt;found=genericFlags(txt);
+    if(!found.length){var compact=txt.replace(/\\s+/g,'');found=genericFlags(compact);}
+   }
    if(found.length){st.className='finding success';st.innerHTML='<b>🚩 تم الوصول إلى العلم تلقائيًا</b><div class="solvePath">Broken File → JPEG Header Repair → Image → OCR → Flag</div>'+found.map(function(v){return '<div class="flag">'+esc(v)+'</div>';}).join('');}
    else{st.className='finding warn';st.innerHTML='تم إصلاح الصورة بنجاح، لكن OCR لم يستخرج Flag موثوقًا تلقائيًا. افحص الصورة المستعادة.';}
   }catch(e){st.className='finding warn';st.innerHTML='تم إصلاح JPEG، لكن تعذر OCR: '+esc(e.message||e);}
