@@ -35,8 +35,14 @@ function analyzeText(raw,deep,source){
     flag when ROT13 changes the payload and remains a valid flag. */
  for(q=0;q<ranked.length;q++){
   if(ranked[q].depth<maxDepth)continue;
-  var rf=ranked[q].flag,rr=rot13(rf),chosen=rf,cp=ranked[q].path;
-  if(rr!==rf&&flags(rr).length&&/[A-Za-z]{4}/.test(rf)){chosen=rr;cp=cp+' → ROT13';}
+  var rf=ranked[q].flag,chosen=rf,cp=ranked[q].path;
+  /* Preserve the CTF/FLAG/MOE prefix and ROT13 only the payload inside braces.
+     Rotating the whole flag changes CTF to PGS, so the old validity check could never pass. */
+  var fm=rf.match(/^((?:CTF|FLAG|MOE)[_\\- ]?)\\{([^{}]+)\\}$/i);
+  if(fm&&/[A-Za-z]{4}/.test(fm[2])){
+   var payload13=rot13(fm[2]),rr=fm[1]+'{'+payload13+'}';
+   if(rr!==rf){chosen=rr;cp=cp+' → ROT13 payload';}
+  }
   if(unique.indexOf(chosen)<0){unique.push(chosen);flagPaths[chosen]=cp;}
  }
  var detected=[];var names=['Base64','Hex','Binary','URL Decode','ROT13','Morse','Caesar'];for(var ni=0;ni<names.length;ni++){for(var di=0;di<rows.length;di++)if(rows[di].path.indexOf(names[ni])>=0){detected.push(names[ni]);break;}}
