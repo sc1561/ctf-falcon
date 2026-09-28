@@ -18,11 +18,16 @@ function analyzeText(raw,deep){
   for(var i=0;i<candidates.length;i++){var n=candidates[i][1],p=x.p+' → '+candidates[i][0];if(!seen[n]&&n.length<100000){seen[n]=1;rows.push([p,n]);var ff=flags(n);for(var k=0;k<ff.length;k++)found.push(ff[k]);queue.push({v:n,p:p,d:x.d+1});count++;}}
  }
  var unique=[],u={};for(var q=0;q<found.length;q++)if(!u[found[q]]){u[found[q]]=1;unique.push(found[q]);}
- var html='<h2>'+(unique.length?'🚩 تم العثور على '+unique.length+' علم محتمل':'🔎 اكتمل التحليل ولم يظهر علم مباشر')+'</h2><span class="tag">'+(deep?'🧠 Deep Scan':'⚡ Quick Scan')+'</span>';
- for(var f=0;f<unique.length;f++)html+='<div class="flag">'+esc(unique[f])+'</div>';
- html+='<h3>🧠 مسار التحليل</h3>';
+ var detected=[];for(var di=0;di<rows.length;di++){var path=rows[di][0];if(path.indexOf('Base64')>=0&&detected.indexOf('Base64')<0)detected.push('Base64');if(path.indexOf('Hex')>=0&&detected.indexOf('Hex')<0)detected.push('Hex');if(path.indexOf('ROT13')>=0&&detected.indexOf('ROT13')<0)detected.push('ROT13');}
+ var html='<div class="studentSummary"><h2>'+(unique.length?'🎉 تم العثور على علم محتمل':'🧭 نتيجة التحليل')+'</h2>';
+ html+='<div class="studentCard"><b>1️⃣ ما نوع التحدي؟</b><p>'+(detected.length?'يبدو أنه تحدي ترميز/تشفير نصي.':'لم يتضح نوع الترميز تلقائيًا بعد.')+'</p></div>';
+ html+='<div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>'+(detected.length?'اكتشف النظام هذه الطرق: <strong>'+esc(detected.join(' ← '))+'</strong>. جرّبها النظام تلقائيًا، لذلك لا تحتاج إلى فك النص يدويًا.':'لم يجد تحويلًا واضحًا في الفحص الحالي.')+'</p></div>';
+ if(unique.length){html+='<div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b><p>وصل النظام إلى نتيجة تشبه صيغة العلم. انسخها ثم تحقق منها في منصة المسابقة.</p>';for(var f=0;f<unique.length;f++)html+='<div class="flag">'+esc(unique[f])+'</div>';html+='</div>';}
+ else html+='<div class="studentCard next"><b>3️⃣ ماذا أفعل الآن؟</b><p>'+(deep?'تم تجربة عدة طبقات تلقائيًا ولم يظهر Flag واضح. انتقل إلى «لم أجد العلم» أو جرّب ملف/معلومة أخرى من التحدي.':'اضغط <strong>🧠 تحليل عميق</strong> ليجرب النظام طبقات إضافية تلقائيًا.')+'</p></div>';
+ html+='</div><details class="tech"><summary>🔧 عرض التفاصيل التقنية للمتقدمين</summary><div class="techBody"><h3>مسارات التحليل</h3>';
  for(var r=0;r<Math.min(rows.length,deep?30:12);r++)html+='<div class="finding"><b>'+esc(rows[r][0])+'</b>: <code>'+esc(rows[r][1].slice(0,350))+'</code></div>';
  if(!rows.length)html+='<div class="finding warn">لم يتم اكتشاف ترميز مدعوم في النص الحالي.</div>';
+ html+='</div></details>';
  result.innerHTML=html;result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});
 }
 window.FalconRun=function(deep){
