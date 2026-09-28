@@ -33,22 +33,27 @@ function analyzeText(raw,deep){
  if(!rows.length)html+='<div class="finding warn">لم يتم اكتشاف ترميز مدعوم في النص الحالي.</div>';html+='</div></details>';
  result.innerHTML=html;result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});
 }
+function runText(raw,deep,source){
+ var result=byId('result');
+ raw=String(raw||'').trim();
+ result.className='result';
+ if(!raw){result.innerHTML='<div class="finding warn">⚠️ لم يصل أي نص إلى محرك التحليل.</div>';return false;}
+ result.innerHTML='<div class="finding">⏳ بدأ التحليل — تم استلام <b>'+raw.length+'</b> حرفًا من '+esc(source||'الإدخال')+'.</div>';
+ setTimeout(function(){try{analyzeText(raw,!!deep);}catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في محرك التحليل: '+esc(e.message||e)+'</div>';}},20);
+ return false;
+}
 window.FalconSelfTest=function(){
  var plain='CTF{FALCON_ENGINE_OK}',rot=rot13(plain),encoded=btoa(rot),ta=byId('text');
  if(ta)ta.value=encoded;
- analyzeText(encoded,true);
+ return runText(encoded,true,'اختبار المحرك');
 };
 window.FalconRun=function(deep){
- var result=byId('result'),ta=byId('text'),fi=byId('file');
- result.className='result';result.innerHTML='<div class="finding">⏳ بدأ التحليل...</div>';
- setTimeout(function(){
-  try{
-   if(fi&&fi.files&&fi.files.length){result.innerHTML='<div class="finding">📂 تم استلام الملف. تحليل الملفات المتقدم يعمل عبر المحرك الرئيسي. جرّب النص الآن للتأكد من استجابة الأزرار.</div>';return;}
-   var raw=ta?ta.value:'';
-   if(!raw.trim()){result.innerHTML='<div class="finding warn">الصق نص التحدي أولاً.</div>';return;}
-   analyzeText(raw,!!deep);
-  }catch(e){result.innerHTML='<div class="finding warn">⚠️ '+esc(e.message||e)+'</div>';}
- },20);
- return false;
+ var ta=byId('text'),fi=byId('file'),result=byId('result');
+ if(fi&&fi.files&&fi.files.length){
+  result.className='result';
+  result.innerHTML='<div class="finding">📂 تم استلام الملف <b>'+esc(fi.files[0].name)+'</b>. تحليل الملفات سيستخدم محرك الملفات في المرحلة التالية. لا يتم تجاهل النص إن كان موجودًا.</div>';
+  if(!ta||!ta.value.trim())return false;
+ }
+ return runText(ta?ta.value:'',!!deep,deep?'التحليل العميق':'التحليل السريع');
 };
 })();
