@@ -31,7 +31,7 @@
   return hits;
  }
  async function analyze(file){
-  if(!file||!/\.png$/i.test(file.name||''))return false;var result=byId('result');if(!result)return false;
+  if(!file)return false;var result=byId('result');if(!result)return false;
   try{var a=new Uint8Array(await file.arrayBuffer());if(a.length<8||a[0]!==137||a[1]!==80||a[2]!==78||a[3]!==71)return false;var r=rawRGBA(a);if(!r)return false,hits=extract(r);if(!hits.length)return false;
    var html='<div class="studentSummary"><h2>🎉 تم حل تحدي PNG Steganography</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PNG / Raw RGBA LSB Steganography</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر؟</b><p>قرأ بيانات PNG الخام مباشرة دون Canvas، وفك IDAT ومرشحات PNG ثم استخرج LSB من RGBA.</p><div class="solvePath">PNG → IDAT → Deflate → PNG Filters → Raw RGBA → LSB → Base64 → Flag</div></div><div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';
    for(var i=0;i<hits.length;i++)html+='<div class="flag">'+esc(hits[i])+'</div>';result.innerHTML=html+'</div></div>';result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});return true;
@@ -39,10 +39,10 @@
  }
  window.FalconRawPngRun=async function(){
  var inp=byId('file')||byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
- if(file&&!pasted&&/\.png$/i.test(file.name||'')){var hit=await analyze(file);if(hit)return false;}
+ if(file&&!pasted){var a=new Uint8Array(await file.slice(0,8).arrayBuffer());var isPng=a.length>=8&&a[0]===137&&a[1]===80&&a[2]===78&&a[3]===71&&a[4]===13&&a[5]===10&&a[6]===26&&a[7]===10;if(isPng){var hit=await analyze(file);if(hit)return false;}}
  return originalRun?originalRun():false;
 };
 window.FalconSmartRun=window.FalconRawPngRun;
 
-try{var badge=document.createElement('div');badge.id='rawPngEngineBadge';badge.textContent='🟢 Raw PNG Engine V84 Loaded';badge.style.cssText='position:fixed;bottom:12px;left:12px;z-index:99999;background:#073b2a;color:#bfffdc;border:1px solid #19c37d;padding:8px 12px;border-radius:10px;font:700 13px system-ui;box-shadow:0 4px 18px #0008';document.body.appendChild(badge);}catch(e){}
+try{var badge=document.createElement('div');badge.id='rawPngEngineBadge';badge.textContent='🟢 Raw PNG Engine V85 Loaded';badge.style.cssText='position:fixed;bottom:12px;left:12px;z-index:99999;background:#073b2a;color:#bfffdc;border:1px solid #19c37d;padding:8px 12px;border-radius:10px;font:700 13px system-ui;box-shadow:0 4px 18px #0008';document.body.appendChild(badge);}catch(e){}
 })();
