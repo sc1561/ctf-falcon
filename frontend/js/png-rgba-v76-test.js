@@ -38,15 +38,6 @@
    });
   }catch(e){return false;}
  }
- var analyzeBtn=byId('solve');
- if(analyzeBtn)analyzeBtn.addEventListener('click',async function(e){
-   var inp=byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
-   if(file&&!pasted&&/\.png$/i.test(file.name||'')){
-     e.preventDefault();e.stopImmediatePropagation();
-     var hit=await analyze(file);
-     if(!hit&&originalRun)originalRun();
-   }
- },true);
  window.FalconSmartRun=async function(){
   var inp=byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
   if(file&&!pasted){var hit=await analyze(file);if(hit)return false;}
