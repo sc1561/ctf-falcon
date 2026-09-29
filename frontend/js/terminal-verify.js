@@ -1,49 +1,54 @@
 (function(){
-  var prev=window.FalconSmartRun;
+  var prev=window.FalconSmartRun, state={};
   function id(x){return document.getElementById(x);}
-  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-  function copyBtn(cmd,label){
-    return '<div style="margin:10px 0"><code style="direction:ltr;display:block;white-space:pre-wrap">'+esc(cmd)+'</code><button type="button" class="falconCopyCmd" data-cmd="'+esc(cmd).replace(/"/g,'&quot;')+'">📋 '+label+'</button></div>';
-  }
+  function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function copyBtn(cmd,label){return '<div style="margin:10px 0"><code style="direction:ltr;display:block;white-space:pre-wrap">'+esc(cmd)+'</code><button type="button" class="falconCopyCmd" data-cmd="'+esc(cmd).replace(/"/g,'&quot;')+'">📋 '+label+'</button></div>';}
+  function steps(n){var a=['① الاتصال بالخادم','② التحقق SHA-256','③ الملف الصحيح','④ فك التشفير','⑤ العلم'];return '<div class="solvePath">'+a.map(function(x,i){return (i<n?'✅ ':'')+x;}).join(' → ')+'</div>';}
+  function pasteBox(label){return '<div style="margin-top:14px"><b>'+label+'</b><textarea class="falconVerifyPaste" style="width:100%;min-height:90px;margin-top:8px" placeholder="الصق نتيجة Terminal هنا..."></textarea><button type="button" class="falconVerifyContinue">➡️ تحليل النتيجة والمتابعة</button></div>';}
   function bind(){
     setTimeout(function(){
-      document.querySelectorAll('.falconCopyCmd').forEach(function(b){
-        b.onclick=function(){
-          if(navigator.clipboard) navigator.clipboard.writeText(this.getAttribute('data-cmd'));
-          this.textContent='✅ تم النسخ';
-        };
-      });
+      document.querySelectorAll('.falconCopyCmd').forEach(function(b){b.onclick=function(){var v=this.getAttribute('data-cmd');if(navigator.clipboard)navigator.clipboard.writeText(v);this.textContent='✅ تم النسخ';};});
+      document.querySelectorAll('.falconVerifyContinue').forEach(function(b){b.onclick=function(){var box=this.parentNode.querySelector('.falconVerifyPaste');if(box&&box.value.trim()) analyze(box.value.trim(),true);};});
     },0);
   }
-  function analyze(t){
-    if(!t) return false;
-    var hashMatch=t.match(/\b[a-fA-F0-9]{64}\b/);
-    var shellMatch=t.match(/([a-fA-F0-9]{64})\s+(files\/[A-Za-z0-9._-]+)/i);
-    var verify=/sha-?256|sha256sum|checksum|decrypt\.sh/i.test(t) || !!shellMatch;
-    var hash=shellMatch ? shellMatch[1] : (hashMatch ? hashMatch[0] : '');
-    if(!hash || !verify) return false;
-    var out=id('result');
-    if(!out) return false;
-    var html='<div class="studentSummary"><h2>🔎 مساعد التحقق SHA-256</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Forensics / SHA-256 File Verification</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر؟</b><p>اكتشف Checksum من نوع SHA-256. لا حاجة إلى ROT13 أو فك Hex.</p><div class="solvePath">Challenge → SHA-256 → Find Matching File → Verify → Decrypt → Flag</div></div>';
-    if(shellMatch){
-      var file=shellMatch[2];
-      var cmd2='./decrypt.sh '+file;
-      html+='<div class="studentCard success"><b>3️⃣ تم العثور على الملف المطابق ✅</b><p><code>'+esc(file)+'</code></p><h3>🖥️ أين أشغّل الأمر؟</h3><p>ارجع إلى نافذة <b>Terminal / SSH</b> التي دخلت منها إلى خادم التحدي. يجب أن ترى سطرًا شبيهًا بـ <code>ctf-player@academy-chall$</code>. لا تضع الأمر داخل صقر.</p><h3>▶️ كيف أشغّله؟</h3><p>1. اضغط زر <b>نسخ أمر فك التشفير</b> أدناه.<br>2. انتقل إلى نافذة Terminal / SSH.<br>3. الصق الأمر بعد علامة <code>$</code>.<br>4. اضغط <b>Enter</b> من لوحة المفاتيح.<br>5. سيظهر ناتج فك التشفير، وغالبًا يحتوي على الـ Flag.<br>6. انسخ الناتج والصقه في صقر للتحقق.</p>'+copyBtn(cmd2,'نسخ أمر فك التشفير')+'<p><b>مثال:</b> <code>ctf-player@academy-chall$ '+esc(cmd2)+'</code></p></div>';
-    }else{
-      var cmd1='sha256sum files/* | grep '+hash;
-      html+='<div class="studentCard next"><b>3️⃣ الخطوة التالية للطالب</b><h3>🖥️ أين أشغّل الأمر؟</h3><p>شغّل الأمر داخل <b>Terminal / SSH</b> الخاص بالتحدي، وليس داخل مربع صقر. بعد الاتصال بالخادم ستظهر لك علامة أو سطر ينتهي عادةً بـ <code>$</code>.</p><h3>▶️ كيف أشغّله؟</h3><p>1. ادخل إلى جلسة SSH المعطاة في التحدي.<br>2. انتظر حتى يظهر سطر الأوامر مثل <code>ctf-player@academy-chall$</code>.<br>3. اضغط <b>نسخ أمر التحقق</b> أدناه.<br>4. الصقه بعد علامة <code>$</code> ثم اضغط <b>Enter</b>.<br>5. سيظهر اسم الملف الذي يطابق SHA-256.<br>6. انسخ سطر النتيجة كاملًا والصقه في صقر.</p>'+copyBtn(cmd1,'نسخ أمر التحقق')+'<p><b>مهم:</b> لا تكتب علامة <code>$</code> بنفسك؛ هي جزء من موجه Terminal فقط.</p></div>';
-    }
-    out.innerHTML=html+'</div>';
-    out.className='result';
-    bind();
-    out.scrollIntoView({behavior:'smooth',block:'start'});
-    return true;
+  function parse(t){
+    var hash=(t.match(/\b[a-fA-F0-9]{64}\b/)||[])[0]||state.hash||'';
+    var shell=t.match(/([a-fA-F0-9]{64})\s+(files\/[A-Za-z0-9._-]+)/i);
+    var ssh=t.match(/ssh\s+(?:-p\s+(\d+)\s+)?([A-Za-z0-9._-]+)@([A-Za-z0-9.-]+)/i);
+    var pass=t.match(/(?:password|كلمة\s*المرور)\s*[:：]?\s*([^\s]+)/i);
+    var flag=t.match(/(?:academy|flag|ctf|moe)\{[^}\r\n]+\}/i);
+    return {hash:hash,shell:shell,ssh:ssh,pass:pass,flag:flag};
   }
-  window.FalconTerminalVerifyRun=function(){
-    var ta=id('text');
-    var t=ta ? ta.value.trim() : '';
-    if(analyze(t)) return false;
-    return prev ? prev() : false;
-  };
+  function analyze(t,continuing){
+    if(!t)return false;
+    var p=parse(t);
+    var verify=/sha-?256|sha256sum|checksum|decrypt\.sh|ssh\s+/i.test(t)||!!p.shell||!!state.hash;
+    if(!verify&&!p.flag)return false;
+    if(p.hash)state.hash=p.hash;
+    if(p.ssh){state.port=p.ssh[1]||'22';state.user=p.ssh[2];state.host=p.ssh[3];}
+    if(p.pass)state.password=p.pass[1];
+    var out=id('result');if(!out)return false;
+    var html='<div class="studentSummary"><h2>🦅 معالج Verify للطالب</h2>';
+    if(p.flag){
+      html+=steps(5)+'<div class="studentCard success"><h3>🚩 تم العثور على العلم</h3><p><code>'+esc(p.flag[0])+'</code></p><p>اكتمل التحدي بنجاح. انسخ العلم وأرسله في منصة المسابقة.</p></div></div>';
+    } else if(p.shell){
+      var file=p.shell[2], dec='./decrypt.sh '+file;
+      state.file=file;
+      html+=steps(3)+'<div class="studentCard success"><h3>③ تم العثور على الملف الصحيح ✅</h3><p><code>'+esc(file)+'</code></p><h3>④ فك التشفير</h3><p>ابقَ في <b>نفس نافذة SSH</b>. انسخ الأمر التالي، الصقه بعد علامة <code>$</code> ثم اضغط <b>Enter</b>.</p>'+copyBtn(dec,'نسخ أمر فك التشفير')+'<p><b>لا تغلق نافذة SSH.</b> بعد ظهور النتيجة انسخها والصقها هنا:</p>'+pasteBox('📥 الصق نتيجة فك التشفير')+'</div></div>';
+    } else {
+      var connect=(state.user&&state.host)?'ssh -p '+state.port+' '+state.user+'@'+state.host:'';
+      var check=state.hash?'sha256sum files/* | grep '+state.hash:'';
+      html+=steps(0)+'<div class="studentCard next"><h3>① الاتصال بالخادم</h3>';
+      if(connect){
+        html+='<p>افتح <b>Windows Terminal أو PowerShell</b> (من قائمة Start اكتب Terminal)، ثم انسخ الأمر التالي والصقه واضغط <b>Enter</b>:</p>'+copyBtn(connect,'نسخ أمر الاتصال SSH');
+        if(state.password)html+='<p>عندما تظهر <b>Password:</b> اكتب/الصق كلمة المرور التالية ثم Enter. <b>لن تظهر الأحرف أثناء الكتابة وهذا طبيعي.</b></p>'+copyBtn(state.password,'نسخ كلمة المرور');
+        html+='<p>عندما ترى سطرًا ينتهي بـ <code>$</code> فقد تم الاتصال. لا تكتب علامة $ بنفسك.</p>';
+      }else html+='<p>افتح Terminal / PowerShell واتصل بعنوان SSH الموجود في وصف التحدي.</p>';
+      if(check)html+='<h3>② التحقق من SHA-256</h3><p>بعد نجاح الاتصال وظهور علامة <code>$</code>، انسخ هذا الأمر والصقه في <b>نفس نافذة SSH</b> ثم اضغط Enter:</p>'+copyBtn(check,'نسخ أمر التحقق')+'<p>ستظهر نتيجة فيها اسم ملف مثل <code>files/xxxx</code>. انسخ <b>سطر النتيجة كاملًا</b> والصقه هنا:</p>'+pasteBox('📥 الصق نتيجة SHA-256');
+      html+='</div></div>';
+    }
+    out.innerHTML=html;out.className='result';bind();out.scrollIntoView({behavior:'smooth',block:'start'});return true;
+  }
+  window.FalconTerminalVerifyRun=function(){var ta=id('text'),t=ta?ta.value.trim():'';if(analyze(t,false))return false;return prev?prev():false;};
   window.FalconSmartRun=window.FalconTerminalVerifyRun;
 })();
