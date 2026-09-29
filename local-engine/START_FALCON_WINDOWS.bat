@@ -23,7 +23,7 @@ if not defined TSK (
  echo Download the official Windows Binaries from:
  echo https://sleuthkit.org/sleuthkit/download.php
  echo.
- echo Extract them so fls.exe and mactime.exe are under:
+ echo Extract them so fls.exe is under:
  echo C:\Falcon\sleuthkit\bin
  echo.
  start "" "https://sleuthkit.org/sleuthkit/download.php"
