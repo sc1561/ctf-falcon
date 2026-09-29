@@ -14,7 +14,12 @@
   var chunks=[], re=/(?:academy|flag|ctf|moe)\{[^}\r\n]*|[A-Za-z0-9_@&!$#-]{5,}\}/ig, all=ascii(u,0,u.length),m;
   while((m=re.exec(all)))chunks.push(m[0]);
   var direct=flag(all);
-  out.innerHTML='<div class="studentSummary"><h2>🧬 Polyglot Analyzer</h2><div class="solvePath">Magic Bytes → PNG + Embedded PDF → استخراج الجزأين → دمج Flag</div><div class="studentCard success"><h3>✅ تم اكتشاف ملف Polyglot</h3><p>التوقيع الأول: <code>PNG</code></p><p>PDF مضمّن عند البايت: <code>'+pdf+'</code></p>'+(direct?'<h3>🚩 تم العثور على العلم</h3><code>'+esc(direct)+'</code>':'<p>تم اكتشاف البنية المزدوجة. افتح الملف كصورة وكـ PDF لاستخراج جزأي العلم.</p>')+'</div></div>';
+  var pngPart=null,pdfPart=null,joined=null;
+  var pm=all.slice(0,pdf).match(/(?:academy|flag|ctf|moe)\{[^\r\n\x00]*/i); if(pm)pngPart=pm[0].replace(/[^\x20-\x7e]+$/,'');
+  var tail=all.slice(pdf); var tm=tail.match(/[A-Za-z0-9_@&!$#-]{4,}\}/); if(tm)pdfPart=tm[0];
+  if(pngPart&&pdfPart)joined=pngPart+pdfPart;
+  if(joined&&!flag(joined))joined=null;
+  out.innerHTML='<div class="studentSummary"><h2>🧬 Polyglot Analyzer</h2><div class="solvePath">Magic Bytes → PNG + Embedded PDF → استخراج الجزأين → دمج Flag</div><div class="studentCard success"><h3>✅ تم اكتشاف ملف Polyglot</h3><p>التوقيع الأول: <code>PNG</code></p><p>PDF مضمّن عند البايت: <code>'+pdf+'</code></p>'+(direct?'<h3>🚩 تم العثور على العلم</h3><code>'+esc(direct)+'</code>':joined?'<p>🖼️ جزء PNG: <code>'+esc(pngPart)+'</code></p><p>📄 جزء PDF: <code>'+esc(pdfPart)+'</code></p><h3>🚩 تم دمج العلم</h3><code>'+esc(joined)+'</code>':'<p>تم اكتشاف البنية المزدوجة، لكن تعذر دمج جزأي العلم تلقائيًا.</p>')+'</div></div>';
   return false;
  }
  window.FalconPolyglotRun=run; window.FalconSmartRun=run;
