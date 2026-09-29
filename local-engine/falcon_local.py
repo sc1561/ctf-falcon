@@ -7,17 +7,17 @@ from pathlib import Path
 HOST="127.0.0.1"; PORT=8765; VERSION="1.3"
 
 def find_steghide():
-    candidates=[shutil.which("steghide"),r"C:\\Falcon\\steghide\\steghide.exe",
+    candidates=[shutil.which("steghide"),r"C:\\Falcon\steghide\steghide.exe",
       str(Path(__file__).resolve().parent/"tools"/"steghide"/"steghide.exe"),
       str(Path(__file__).resolve().parent/"steghide.exe")]
     return next((str(Path(c)) for c in candidates if c and Path(c).is_file()),None)
 
 def find_tool(name):
     candidates=[shutil.which(name),shutil.which(name+".exe"),
-      str(Path(r"C:\\Falcon\\sleuthkit\\bin")/(name+".exe")),
-      str(Path(r"C:\\Falcon\\sleuthkit")/(name+".exe")),
-      str(Path(r"C:\\Program Files\\sleuthkit\\bin")/(name+".exe")),
-      str(Path(r"C:\\Program Files\\Sleuth Kit\\bin")/(name+".exe")),
+      str(Path(r"C:\\Falcon\sleuthkit\\bin")/(name+".exe")),
+      str(Path(r"C:\\Falcon\sleuthkit")/(name+".exe")),
+      str(Path(r"C:\\Program Files\sleuthkit\\bin")/(name+".exe")),
+      str(Path(r"C:\\Program Files\Sleuth Kit\\bin")/(name+".exe")),
       str(Path(__file__).resolve().parent/"tools"/"sleuthkit"/"bin"/(name+".exe"))]
     return next((str(Path(c)) for c in candidates if c and Path(c).is_file()),None)
 
@@ -106,7 +106,7 @@ class H(BaseHTTPRequestHandler):
                 # Also inspect tiny, very recent regular files: anti-forensic actions often leave a nearby clue.
                 tiny=[]
                 for x in recent[-60:]:
-                    m0=re.search(r"macb\\s+(\\d+)\\s+([^\\s]+)\\s+(r/[^\\s]+)\\s+(.+)$",x)
+                    m0=re.search(r"macb\s+(\d+)\s+([^\s]+)\s+(r/[^\s]+)\s+(.+)$",x)
                     if m0 and int(m0.group(1))<=4096: tiny.append(x)
                 inspect=list(dict.fromkeys(evidence[-40:]+tiny))
                 extracted=[]
@@ -114,10 +114,10 @@ class H(BaseHTTPRequestHandler):
                 if icat:
                     for line in inspect:
                         # Bodyfile inode can include a sequence suffix (e.g. 4943-128-1); icat accepts the inode token.
-                        m=re.search(r"macb\\s+\\d+\\s+([^\\s]+)\\s+\\S+\\s+(.+)$",line)
+                        m=re.search(r"macb\s+\d+\s+([^\s]+)\s+\S+\s+(.+)$",line)
                         if not m: continue
                         inode,name2=m.group(1),m.group(2)
-                        if not re.search(r"\\s+d/d",line) and not name2.endswith("/"):
+                        if not re.search(r"\s+d/d",line) and not name2.endswith("/"):
                             pass
                         try:
                             q2=subprocess.run([icat,str(img),inode],capture_output=True,timeout=20)
