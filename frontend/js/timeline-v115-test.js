@@ -4,12 +4,19 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function fmt(n){return (n/1048576).toFixed(1)+' MB';}
 async function run(){
  var inp=document.getElementById('file'),f=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile;if(!f)return false;
- if(!/\.img\.gz$/i.test(f.name||''))return false;
+ if(!/\\.img\\.gz$/i.test(f.name||''))return false;
  var r=document.getElementById('result');if(!r)return true;r.classList.remove('hidden');
- r.innerHTML='<div class="finding"><h3>🕒 Timeline / Filesystem Analyzer — V115</h3><p>اكتشف صقر صورة قرص مضغوطة مخصصة لتحليل الخط الزمني.</p><p><b>المسار المقترح:</b> IMG.GZ → ext filesystem → Sleuth Kit bodyfile → MAC Timeline → <code>macb</code> → أحدث الملفات</p><p>📦 الملف: <code>'+esc(f.name)+'</code> — '+fmt(f.size)+'</p><div class="finding warn"><b>⚠️ يحتاج محرك Timeline المحلي</b><p>إنشاء MAC timeline الكامل من صورة قرص كبيرة يحتاج أدوات Sleuth Kit مثل <code>fls</code> و<code>mactime</code>. المتصفح لن يخمّن العلم عبر strings بدل التحليل الجنائي المطلوب.</p></div><h4>🔧 أوامر التحليل</h4><pre dir="ltr">gunzip -k '+esc(f.name)+'\nfls -r -m / '+esc((f.name||'disk.img.gz').replace(/\.gz$/i,''))+' > bodyfile.txt\nmactime -b bodyfile.txt > timeline.csv\ngrep "macb" timeline.csv | tail -n 50</pre><p>بعد تشغيلها، الصق آخر الأسطر في مربع النص الرئيسي واضغط <b>حلّل التحدي</b> ليكمل صقر فرز الأحداث والبحث عن الدليل.</p><details><summary>🧠 لماذا macb؟</summary><p><code>m a c b</code> تشير إلى وجود أزمنة Modified / Accessed / Changed / Birth للملف في سجل Sleuth Kit، وهي النقطة التي يطلبها تلميح التحدي للتركيز على الملفات الجديدة قرب النشاط المضاد للتحليل الجنائي.</p></details></div>';
+ r.innerHTML='<div class="finding"><h3>🕒 Timeline Analyzer — V116</h3><p>تم التعرف على صورة قرص مضغوطة. جارٍ الاتصال بمحرك صقر المحلي لتنفيذ <code>fls + mactime</code> تلقائيًا…</p><p>📦 <code>'+esc(f.name)+'</code> — '+fmt(f.size)+'</p></div>';
+ try{
+  var health=await fetch('http://127.0.0.1:8765/health',{cache:'no-store'}).then(function(x){return x.json();});
+  if(!health.sleuthkit)throw new Error('SLEUTHKIT');
+  var res=await fetch('http://127.0.0.1:8765/timeline/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':f.name},body:f});
+  var d=await res.json(); if(!d.ok)throw new Error(d.error||'ENGINE');
+  var lines=(d.evidence&&d.evidence.length?d.evidence:d.recent)||[];
+  r.innerHTML='<div class="finding success"><h3>🕒 MAC Timeline جاهز</h3><p><b>المسار:</b> IMG.GZ → ext filesystem → fls → mactime → macb → Recent Files</p><p>وجد صقر <b>'+d.macb_count+'</b> سجلًا من نوع <code>macb</code>.</p><h4>🔎 أحدث الأدلة</h4><pre dir="ltr" style="white-space:pre-wrap;max-height:360px;overflow:auto">'+esc(lines.slice(-30).join('\\n'))+'</pre><p>انسخ السطر/اسم الملف المشبوه إلى مربع النص ليكمل صقر التحليل، أو افتح التفاصيل لمراجعة آخر الأحداث.</p><details><summary>🔧 آخر سجلات macb</summary><pre dir="ltr" style="white-space:pre-wrap">'+esc((d.recent||[]).slice(-50).join('\\n'))+'</pre></details></div>';
+ }catch(e){
+  var msg=e.message==='SLEUTHKIT'?'المحرك المحلي يعمل، لكن Sleuth Kit (fls + mactime) غير مثبت.':'تعذر الاتصال بمحرك صقر المحلي V0.5.';
+  r.innerHTML='<div class="finding warn"><h3>🕒 Timeline Analyzer — V116</h3><p>'+msg+'</p><p>شغّل <code>local-engine/falcon_local.py</code> وتأكد أن <code>fls</code> و<code>mactime</code> متاحان، ثم أعد التحليل. لم يتم استخدام strings أو تخمين العلم.</p></div>';
+ }
  r.scrollIntoView({behavior:'smooth',block:'start'});return true;
-}
-var prev=window.FalconSmartRun;
-window.FalconTimelineRun=async function(){try{if(await run())return false;}catch(e){console.warn('Falcon Timeline',e);}return prev?prev():false;};
-window.FalconSmartRun=window.FalconTimelineRun;
-})();
+};
