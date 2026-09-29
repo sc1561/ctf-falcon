@@ -4,12 +4,26 @@
  function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
  function flag(s){var m=String(s||'').match(/(?:academy|flag|ctf|moe)\{[^}\r\n]+\}/i);return m&&m[0];}
  async function decodeImage(blob){
-   if(!('BarcodeDetector' in window)) throw new Error('QR_API');
-   var det=new BarcodeDetector({formats:['qr_code']});
    var bmp=await createImageBitmap(blob);
-   var codes=await det.detect(bmp);
-   if(bmp.close)bmp.close();
-   return codes&&codes.length?(codes[0].rawValue||''):'';
+   try{
+     if('BarcodeDetector' in window){
+       try{
+         var det=new BarcodeDetector({formats:['qr_code']});
+         var codes=await det.detect(bmp);
+         if(codes&&codes.length)return codes[0].rawValue||'';
+       }catch(e){}
+     }
+     if(window.jsQR){
+       var canvas=document.createElement('canvas');
+       canvas.width=bmp.width;canvas.height=bmp.height;
+       var ctx=canvas.getContext('2d',{willReadFrequently:true});
+       ctx.drawImage(bmp,0,0);
+       var im=ctx.getImageData(0,0,canvas.width,canvas.height);
+       var q=window.jsQR(im.data,im.width,im.height,{inversionAttempts:'attemptBoth'});
+       return q&&q.data?q.data:'';
+     }
+     throw new Error('QR_API');
+   }finally{if(bmp.close)bmp.close();}
  }
  async function scanZip(file,out){
    if(!window.JSZip)return false;
