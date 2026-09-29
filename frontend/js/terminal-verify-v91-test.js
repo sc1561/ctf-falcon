@@ -7,7 +7,7 @@
  function analyze(t){
   if(!t)return false;
   var hash=(t.match(/\b[a-fA-F0-9]{64}\b/)||[])[0];
-  var verify=/sha-?256|sha256sum|checksum|decrypt\.sh/i.test(t);\n  // Stage 2 may contain only: <64-char hash>  files/<name>. Treat that as Verify output too.\n  var shellMatch=t.match(/^([a-fA-F0-9]{64})\\s+(files\\/[A-Za-z0-9._-]+)\\s*$/m);\n  if(shellMatch){ hash=shellMatch[1]; verify=true; }
+  var verify=/sha-?256|sha256sum|checksum|decrypt\.sh/i.test(t);\n  // Stage 2 may contain only: <64-char hash>  files/<name>. Treat that as Verify output too.\n  var shellMatch=t.match(/([a-fA-F0-9]{64})\\s+(files\\/[A-Za-z0-9._-]+)/i);\n  if(shellMatch){ hash=shellMatch[1]; verify=true; }
   if(!hash||!verify)return false;
   var out=id('result');if(!out)return false;
   var fm=t.match(/(?:files\/)([A-Za-z0-9._-]+)/i);
