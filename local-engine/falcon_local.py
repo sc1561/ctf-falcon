@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="0.9"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.0"
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\\steghide\\steghide.exe",
@@ -22,10 +22,11 @@ def find_tool(name):
     return next((str(Path(c)) for c in candidates if c and Path(c).is_file()),None)
 
 def status():
-    fls=find_tool("fls")
+    fls=find_tool("fls"); icat=find_tool("icat")
     return {"ok":True,"engine":"Falcon Local Engine","version":VERSION,"python":True,
       "steghide":bool(find_steghide()),"steghide_path":find_steghide(),
-      "sleuthkit":bool(fls),"fls_path":fls,"timeline_python":True,"ready":True}
+      "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
+      "timeline_python":True,"ready":True}
 
 def dashboard():
     st=status()
@@ -154,6 +155,7 @@ class H(BaseHTTPRequestHandler):
 if __name__=="__main__":
     print("🦅 Falcon Local Engine v"+VERSION); print(f"🌐 http://{HOST}:{PORT}"); print("🟢 Python: ready")
     fls=find_tool("fls"); print(("🟢" if fls else "🔴")+" Sleuth Kit / fls: "+(fls or "not found"))
+    icat=find_tool("icat"); print(("🟢" if icat else "🔴")+" Sleuth Kit / icat: "+(icat or "not found"))
     print("🟢 Timeline: Falcon Python — mactime.exe not required")
     exe=find_steghide(); print(("🟢" if exe else "🔴")+" Steghide: "+(exe or "not installed"))
     print("Localhost only. Press Ctrl+C to stop.")
