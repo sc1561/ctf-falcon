@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.1"
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\\steghide\\steghide.exe",
@@ -103,10 +103,16 @@ class H(BaseHTTPRequestHandler):
                 macb=body_macb(body); recent=macb[-120:]
                 keys=("flag","secret","anti","wipe","shred","tmp","home/","root/","bash","history")
                 evidence=[x for x in recent if any(k in x.lower() for k in keys)]
+                # Also inspect tiny, very recent regular files: anti-forensic actions often leave a nearby clue.
+                tiny=[]
+                for x in recent[-60:]:
+                    m0=re.search(r"macb\\s+(\\d+)\\s+([^\\s]+)\\s+(r/[^\\s]+)\\s+(.+)$",x)
+                    if m0 and int(m0.group(1))<=4096: tiny.append(x)
+                inspect=list(dict.fromkeys(evidence[-40:]+tiny))
                 extracted=[]
                 icat=find_tool("icat")
                 if icat:
-                    for line in evidence[-40:]:
+                    for line in inspect:
                         # Bodyfile inode can include a sequence suffix (e.g. 4943-128-1); icat accepts the inode token.
                         m=re.search(r"macb\\s+\\d+\\s+([^\\s]+)\\s+\\S+\\s+(.+)$",line)
                         if not m: continue
@@ -116,9 +122,15 @@ class H(BaseHTTPRequestHandler):
                             q2=subprocess.run([icat,str(img),inode],capture_output=True,timeout=20)
                             raw=q2.stdout[:1024*1024]
                             txt=raw.decode("utf-8","ignore")
+                            decoded=[]
+                            for tok in re.findall(r"[A-Za-z0-9+/]{12,}={0,2}",txt):
+                                try:
+                                    z=base64.b64decode(tok,validate=True).decode("utf-8","ignore").strip()
+                                    if z and sum(ch.isprintable() for ch in z)/max(1,len(z))>.9: decoded.append(z)
+                                except Exception: pass
                             flags=re.findall(r"[A-Za-z][A-Za-z0-9_.:-]{1,30}\\{[^{}\\r\\n]{2,200}\\}",txt)
                             extracted.append({"path":name2,"inode":inode,"returncode":q2.returncode,
-                              "text":txt[-4000:],"flags":flags[:20],"error":q2.stderr.decode("utf-8","ignore")[-500:]})
+                              "text":txt[-4000:],"decoded":decoded[:20],"flags":flags[:20],"error":q2.stderr.decode("utf-8","ignore")[-500:]})
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
