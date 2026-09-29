@@ -38,7 +38,7 @@
    });
   }catch(e){return false;}
  }
- var analyzeBtn=byId('analyzeBtn');
+ var analyzeBtn=byId('solve');
  if(analyzeBtn)analyzeBtn.addEventListener('click',async function(e){
    var inp=byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
    if(file&&!pasted&&/\.png$/i.test(file.name||'')){
