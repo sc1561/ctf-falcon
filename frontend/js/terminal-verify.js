@@ -28,10 +28,10 @@
     if(shellMatch){
       var file=shellMatch[2];
       var cmd2='./decrypt.sh '+file;
-      html+='<div class="studentCard success"><b>3️⃣ تم العثور على الملف المطابق ✅</b><p><code>'+esc(file)+'</code></p>'+copyBtn(cmd2,'نسخ أمر فك التشفير')+'<p>شغّل الأمر في نفس جلسة SSH، ثم الصق الناتج في صقر.</p></div>';
+      html+='<div class="studentCard success"><b>3️⃣ تم العثور على الملف المطابق ✅</b><p><code>'+esc(file)+'</code></p><h3>🖥️ أين أشغّل الأمر؟</h3><p>ارجع إلى نافذة <b>Terminal / SSH</b> التي دخلت منها إلى خادم التحدي. يجب أن ترى سطرًا شبيهًا بـ <code>ctf-player@academy-chall$</code>. لا تضع الأمر داخل صقر.</p><h3>▶️ كيف أشغّله؟</h3><p>1. اضغط زر <b>نسخ أمر فك التشفير</b> أدناه.<br>2. انتقل إلى نافذة Terminal / SSH.<br>3. الصق الأمر بعد علامة <code>$</code>.<br>4. اضغط <b>Enter</b> من لوحة المفاتيح.<br>5. سيظهر ناتج فك التشفير، وغالبًا يحتوي على الـ Flag.<br>6. انسخ الناتج والصقه في صقر للتحقق.</p>'+copyBtn(cmd2,'نسخ أمر فك التشفير')+'<p><b>مثال:</b> <code>ctf-player@academy-chall$ '+esc(cmd2)+'</code></p></div>';
     }else{
       var cmd1='sha256sum files/* | grep '+hash;
-      html+='<div class="studentCard next"><b>3️⃣ الخطوة التالية للطالب</b><p>بعد الدخول إلى SSH، انسخ هذا الأمر للعثور على الملف الذي يطابق الـChecksum:</p>'+copyBtn(cmd1,'نسخ أمر التحقق')+'<p>بعد ظهور النتيجة، الصقها هنا ليعطيك صقر أمر فك التشفير.</p></div>';
+      html+='<div class="studentCard next"><b>3️⃣ الخطوة التالية للطالب</b><h3>🖥️ أين أشغّل الأمر؟</h3><p>شغّل الأمر داخل <b>Terminal / SSH</b> الخاص بالتحدي، وليس داخل مربع صقر. بعد الاتصال بالخادم ستظهر لك علامة أو سطر ينتهي عادةً بـ <code>$</code>.</p><h3>▶️ كيف أشغّله؟</h3><p>1. ادخل إلى جلسة SSH المعطاة في التحدي.<br>2. انتظر حتى يظهر سطر الأوامر مثل <code>ctf-player@academy-chall$</code>.<br>3. اضغط <b>نسخ أمر التحقق</b> أدناه.<br>4. الصقه بعد علامة <code>$</code> ثم اضغط <b>Enter</b>.<br>5. سيظهر اسم الملف الذي يطابق SHA-256.<br>6. انسخ سطر النتيجة كاملًا والصقه في صقر.</p>'+copyBtn(cmd1,'نسخ أمر التحقق')+'<p><b>مهم:</b> لا تكتب علامة <code>$</code> بنفسك؛ هي جزء من موجه Terminal فقط.</p></div>';
     }
     out.innerHTML=html+'</div>';
     out.className='result';
