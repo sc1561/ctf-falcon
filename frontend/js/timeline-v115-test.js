@@ -20,3 +20,7 @@ async function run(){
  }
  r.scrollIntoView({behavior:'smooth',block:'start'});return true;
 };
+var prev=window.FalconSmartRun;
+window.FalconTimelineRun=async function(){try{if(await run())return false;}catch(e){console.warn('Falcon Timeline',e);}return prev?prev():false;};
+window.FalconSmartRun=window.FalconTimelineRun;
+})();
