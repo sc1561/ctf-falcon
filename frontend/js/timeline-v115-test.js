@@ -4,7 +4,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function fmt(n){return (n/1048576).toFixed(1)+' MB';}
 async function run(){
  var inp=document.getElementById('file'),f=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile;if(!f)return false;
- if(!/\\.img\\.gz$/i.test(f.name||''))return false;
+ if(!/\.img\.gz$/i.test(f.name||''))return false;
  var r=document.getElementById('result');if(!r)return true;r.classList.remove('hidden');
  r.innerHTML='<div class="finding"><h3>🕒 Timeline Analyzer — V116</h3><p>تم التعرف على صورة قرص مضغوطة. جارٍ الاتصال بمحرك صقر المحلي لتنفيذ <code>fls + mactime</code> تلقائيًا…</p><p>📦 <code>'+esc(f.name)+'</code> — '+fmt(f.size)+'</p></div>';
  try{
