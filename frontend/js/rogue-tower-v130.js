@@ -22,9 +22,14 @@ async function analyze(file){
  var victim=rogue&&agents.find(x=>x[2]===rogue[2]);
  if(!rogue||!victim)return false;
  var bodies=[...text.matchAll(/POST [^\r\n]*[\s\S]*?\r\n\r\n([A-Za-z0-9+\/=]{4,})/g)].map(x=>x[1]);
- var joined=bodies.join(''), data=unpack64(joined), imsi=victim[1], keys=[imsi.slice(-8),imsi.slice(-6),imsi.slice(-4),imsi], hits=[],used='';
- for(var z=0;z<keys.length&&!hits.length;z++){var plain=transform(data,keys[z]);hits=flag(plain);if(hits.length)used=keys[z]}
- out.innerHTML='<div class="studentSummary"><h2>📡 Rogue Tower Analyzer — V130</h2><div class="studentCard"><b>البرج المشبوه</b><p>PLMN <code>'+clean(rogue[1])+'</code> — CELLID <code>'+clean(rogue[2])+'</code></p></div><div class="studentCard"><b>الجهاز المتأثر</b><p>IMSI <code>'+clean(victim[1])+'</code></p></div><p>أجزاء HTTP POST المكتشفة: <strong>'+bodies.length+'</strong></p>'+(hits.length?'<div class="studentCard success"><b>🚩 العلم المرشح</b><div class="flag">'+clean(hits[0])+'</div><small>IMSI-derived key: '+clean(used)+'</small></div>':'<p>تم تحديد البرج والجهاز، لكن لم يظهر علم صالح بعد.</p>')+'</div>';
+ var imsi=victim[1], keys=[imsi.slice(-8),imsi.slice(-6),imsi.slice(-4),imsi], hits=[],used='',joined=bodies.join(''),data=unpack64(joined);
+ function tryData(a){for(var z=0;z<keys.length&&!hits.length;z++){var plain=transform(a,keys[z]);hits=flag(plain);if(hits.length)used=keys[z]}}
+ tryData(data);
+ if(!hits.length){
+   var decodedParts=bodies.map(unpack64), total=[]; decodedParts.forEach(function(a){total=total.concat(a)});
+   tryData(total);
+ }
+ out.innerHTML='<div class="studentSummary"><h2>📡 Rogue Tower Analyzer — V133</h2><div class="studentCard"><b>البرج المشبوه</b><p>PLMN <code>'+clean(rogue[1])+'</code> — CELLID <code>'+clean(rogue[2])+'</code></p></div><div class="studentCard"><b>الجهاز المتأثر</b><p>IMSI <code>'+clean(victim[1])+'</code></p></div><p>أجزاء HTTP POST المكتشفة: <strong>'+bodies.length+'</strong></p>'+(hits.length?'<div class="studentCard success"><b>🚩 العلم المرشح</b><div class="flag">'+clean(hits[0])+'</div><small>IMSI-derived key: '+clean(used)+'</small></div>':'<p>تم تحديد البرج والجهاز، لكن لم يظهر علم صالح بعد.</p>')+'</div>';
  out.className='result'; return true;
 }
 window.FalconRogueTowerRun=async function(){var f=(el('file')&&el('file').files&&el('file').files[0])||window.__falconDroppedFile;if(f){try{if(await analyze(f))return false}catch(e){console.warn(e)}}return previous?previous():false};
