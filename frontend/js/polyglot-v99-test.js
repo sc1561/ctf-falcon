@@ -14,9 +14,14 @@
   var chunks=[], re=/(?:academy|flag|ctf|moe)\{[^}\r\n]*|[A-Za-z0-9_@&!$#-]{5,}\}/ig, all=ascii(u,0,u.length),m;
   while((m=re.exec(all)))chunks.push(m[0]);
   var direct=flag(all);
+  // V101: real extraction: OCR the PNG view and inflate PDF text streams.
+  var ocrText='';
+  try{if(window.Tesseract){var pngBlob=new Blob([u.slice(0,pdf)],{type:'image/png'});var rr=await Tesseract.recognize(pngBlob,'eng');ocrText=(rr&&rr.data&&rr.data.text)||'';}}catch(e){}
+  var pdfText='';
+  try{if(window.pako){var tailBytes=u.slice(pdf), marker=new TextEncoder().encode('stream\n'), endm=new TextEncoder().encode('endstream');function fb(h,n,s){outer:for(var ii=s||0;ii<=h.length-n.length;ii++){for(var jj=0;jj<n.length;jj++)if(h[ii+jj]!==n[jj])continue outer;return ii;}return -1;}var pos=0;while((pos=fb(tailBytes,marker,pos))>=0){var st=pos+marker.length,en=fb(tailBytes,endm,st);if(en<0)break;try{pdfText+=new TextDecoder('latin1').decode(pako.inflate(tailBytes.slice(st,en)))+'\n';}catch(e){}pos=en+endm.length;}}}catch(e){}
   var pngPart=null,pdfPart=null,joined=null;
-  var pm=all.slice(0,pdf).match(/(?:academy|flag|ctf|moe)\{[^\r\n\x00]*/i); if(pm)pngPart=pm[0].replace(/[^\x20-\x7e]+$/,'');
-  var tail=all.slice(pdf); var tm=tail.match(/[A-Za-z0-9_@&!$#-]{4,}\}/); if(tm)pdfPart=tm[0];
+  var pm=ocrText.match(/(?:academy|flag|ctf|moe)\s*\{[^\r\n]*/i); if(pm)pngPart=pm[0].replace(/\s+/g,'').replace(/[^\x20-\x7e]+$/,'');
+  var tail=all.slice(pdf); var tm=pdfText.match(/\(([^()]{4,}\})\)\s*Tj/); if(tm)pdfPart=tm[1]; else {tm=tail.match(/[A-Za-z0-9_@&!$#-]{4,}\}/);if(tm)pdfPart=tm[0];}
   if(pngPart&&pdfPart)joined=pngPart+pdfPart;
   if(joined&&!flag(joined))joined=null;
   out.innerHTML='<div class="studentSummary"><h2>🧬 Polyglot Analyzer</h2><div class="solvePath">Magic Bytes → PNG + Embedded PDF → استخراج الجزأين → دمج Flag</div><div class="studentCard success"><h3>✅ تم اكتشاف ملف Polyglot</h3><p>التوقيع الأول: <code>PNG</code></p><p>PDF مضمّن عند البايت: <code>'+pdf+'</code></p>'+(direct?'<h3>🚩 تم العثور على العلم</h3><code>'+esc(direct)+'</code>':joined?'<p>🖼️ جزء PNG: <code>'+esc(pngPart)+'</code></p><p>📄 جزء PDF: <code>'+esc(pdfPart)+'</code></p><h3>🚩 تم دمج العلم</h3><code>'+esc(joined)+'</code>':'<p>تم اكتشاف البنية المزدوجة، لكن تعذر دمج جزأي العلم تلقائيًا.</p>')+'</div></div>';
