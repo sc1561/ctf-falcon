@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.3"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.4"
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\steghide\steghide.exe",
@@ -100,7 +100,7 @@ class H(BaseHTTPRequestHandler):
                 with body.open("w",encoding="utf-8",errors="ignore") as w:
                     q=subprocess.run([fls,"-r","-m","/",str(img)],stdout=w,stderr=subprocess.PIPE,text=True,timeout=240)
                 if q.returncode!=0: return reply(self,422,{"ok":False,"error":"fls failed","message":q.stderr[-1500:]})
-                macb=body_macb(body); recent=macb[-120:]
+                macb=body_macb(body); recent=macb[-120:]\n                years=[int(x[:4]) for x in macb if len(x)>=5 and x[:4].isdigit() and x[4]=="-"]\n                normal_year=max(years) if years else datetime.now().year\n                old_anomalies=[x for x in macb if len(x)>=5 and x[:4].isdigit() and x[4]=="-" and int(x[:4]) < normal_year-5]
                 keys=("flag","secret","anti","wipe","shred","tmp","home/","root/","bash","history")
                 evidence=[x for x in recent if any(k in x.lower() for k in keys)]
                 # Also inspect tiny, very recent regular files: anti-forensic actions often leave a nearby clue.
@@ -108,7 +108,7 @@ class H(BaseHTTPRequestHandler):
                 for x in recent[-60:]:
                     m0=re.search(r"macb\s+(\d+)\s+([^\s]+)\s+(r/[^\s]+)\s+(.+)$",x)
                     if m0 and int(m0.group(1))<=4096: tiny.append(x)
-                inspect=list(dict.fromkeys(evidence[-40:]+tiny))
+                inspect=list(dict.fromkeys(evidence[-40:]+tiny+old_anomalies[:80]))
                 extracted=[]
                 icat=find_tool("icat")
                 if icat:
@@ -139,7 +139,7 @@ class H(BaseHTTPRequestHandler):
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
-                  "recent":recent,"evidence":evidence[-40:],"icat_path":icat,"extracted":extracted})
+                  "recent":recent,"evidence":evidence[-40:],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
             except subprocess.TimeoutExpired: return reply(self,504,{"ok":False,"error":"Timeline analysis timed out"})
             except Exception as e: return reply(self,500,{"ok":False,"error":"Timeline analysis failed","message":str(e)[:500]})
 
