@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="0.7"
+HOST="127.0.0.1"; PORT=8765; VERSION="0.8"
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\\steghide\\steghide.exe",
