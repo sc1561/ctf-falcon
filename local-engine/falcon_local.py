@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.2"
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\\steghide\\steghide.exe",
@@ -117,7 +117,8 @@ class H(BaseHTTPRequestHandler):
                         m=re.search(r"macb\\s+\\d+\\s+([^\\s]+)\\s+\\S+\\s+(.+)$",line)
                         if not m: continue
                         inode,name2=m.group(1),m.group(2)
-                        if not any(k in name2.lower() for k in ("history","flag","secret","bash","ash","tmp")): continue
+                        if not re.search(r"\\s+d/d",line) and not name2.endswith("/"):
+                            pass
                         try:
                             q2=subprocess.run([icat,str(img),inode],capture_output=True,timeout=20)
                             raw=q2.stdout[:1024*1024]
@@ -129,8 +130,12 @@ class H(BaseHTTPRequestHandler):
                                     if z and sum(ch.isprintable() for ch in z)/max(1,len(z))>.9: decoded.append(z)
                                 except Exception: pass
                             flags=re.findall(r"[A-Za-z][A-Za-z0-9_.:-]{1,30}\\{[^{}\\r\\n]{2,200}\\}",txt)
+                            candidates=list(flags)
+                            for z in decoded:
+                                if re.fullmatch(r"[A-Za-z0-9_@!$%^&*+.=:-]{6,160}",z):
+                                    candidates.append("academy{"+z+"}")
                             extracted.append({"path":name2,"inode":inode,"returncode":q2.returncode,
-                              "text":txt[-4000:],"decoded":decoded[:20],"flags":flags[:20],"error":q2.stderr.decode("utf-8","ignore")[-500:]})
+                              "text":txt[-4000:],"decoded":decoded[:20],"flags":flags[:20],"candidates":candidates[:20],"error":q2.stderr.decode("utf-8","ignore")[-500:]})
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
