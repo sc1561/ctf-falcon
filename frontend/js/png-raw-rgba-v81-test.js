@@ -32,7 +32,7 @@
  }
  async function analyze(file){
   if(!file)return false;var result=byId('result');if(!result)return false;
-  try{var a=new Uint8Array(await file.arrayBuffer());if(a.length<8||a[0]!==137||a[1]!==80||a[2]!==78||a[3]!==71)return false;var r=rawRGBA(a);if(!r)return false,hits=extract(r);if(!hits.length)return false;
+  try{var a=new Uint8Array(await file.arrayBuffer());if(a.length<8||a[0]!==137||a[1]!==80||a[2]!==78||a[3]!==71)return false;var r=rawRGBA(a);if(!r){result.innerHTML='<div class="studentSummary"><h2>🧪 Raw PNG V88 Diagnostic</h2><p>PNG مدعوم بالتوقيع لكن صيغة IHDR غير مدعومة في Raw RGBA.</p></div>';result.className='result';return 'diagnostic';}var hits=extract(r);if(!hits.length){var bytes=[],v=0,n=0;for(var ii=0;ii<r.p.length;ii++){v=(v<<1)|(r.p[ii]&1);if(++n===8){bytes.push(v);v=0;n=0;}}var preview=textFromBytes(new Uint8Array(bytes)).slice(0,160);result.innerHTML='<div class="studentSummary"><h2>🧪 Raw PNG V88 Diagnostic</h2><div class="studentCard"><b>Raw RGBA تم تنفيذه لكن لم يلتقط Flag.</b><pre style="white-space:pre-wrap;direction:ltr;text-align:left">'+esc(preview)+'</pre></div></div>';result.className='result';return 'diagnostic';}
    var html='<div class="studentSummary"><h2>🎉 تم حل تحدي PNG Steganography</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>PNG / Raw RGBA LSB Steganography</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر؟</b><p>قرأ بيانات PNG الخام مباشرة دون Canvas، وفك IDAT ومرشحات PNG ثم استخرج LSB من RGBA.</p><div class="solvePath">PNG → IDAT → Deflate → PNG Filters → Raw RGBA → LSB → Base64 → Flag</div></div><div class="studentCard success"><b>3️⃣ العلم المرشح 🚩</b>';
    for(var i=0;i<hits.length;i++)html+='<div class="flag">'+esc(hits[i])+'</div>';result.innerHTML=html+'</div></div>';result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});return true;
   }catch(e){result.innerHTML='<div class="studentSummary"><h2>🧪 Raw PNG V87 Diagnostic</h2><div class="studentCard"><b>سبب فشل المحرك الجديد:</b><pre style="white-space:pre-wrap;direction:ltr;text-align:left">'+esc(e&&e.message?e.message:e)+'</pre></div></div>';result.className='result';return 'error';}
@@ -44,5 +44,5 @@
 };
 window.FalconSmartRun=window.FalconRawPngRun;
 
-try{var badge=document.createElement('div');badge.id='rawPngEngineBadge';badge.textContent='🟢 Raw PNG Engine V87 Loaded';badge.style.cssText='position:fixed;bottom:12px;left:12px;z-index:99999;background:#073b2a;color:#bfffdc;border:1px solid #19c37d;padding:8px 12px;border-radius:10px;font:700 13px system-ui;box-shadow:0 4px 18px #0008';document.body.appendChild(badge);}catch(e){}
+try{var badge=document.createElement('div');badge.id='rawPngEngineBadge';badge.textContent='🟢 Raw PNG Engine V88 Loaded';badge.style.cssText='position:fixed;bottom:12px;left:12px;z-index:99999;background:#073b2a;color:#bfffdc;border:1px solid #19c37d;padding:8px 12px;border-radius:10px;font:700 13px system-ui;box-shadow:0 4px 18px #0008';document.body.appendChild(badge);}catch(e){}
 })();
