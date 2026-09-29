@@ -29,6 +29,6 @@ async function run(){
  r.scrollIntoView({behavior:'smooth',block:'start'}); return true;
 }
 var prev=window.FalconSmartRun;
-window.FalconMetadataRun=async function(){try{if(await run())return false;}catch(e){console.warn('Falcon metadata',e);}return prev?prev():false;};
-window.FalconSmartRun=window.FalconMetadataRun;
+window.FalconMetadataV113Run=async function(){try{if(await run())return false;}catch(e){console.warn('Falcon metadata',e);}return prev?prev():false;};
+window.FalconSmartRun=window.FalconMetadataV113Run;
 })();
