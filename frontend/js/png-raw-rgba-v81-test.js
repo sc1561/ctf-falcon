@@ -38,11 +38,11 @@
   }catch(e){return false;}
  }
  window.FalconRawPngRun=async function(){
- var inp=byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
+ var inp=byId('file')||byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
  if(file&&!pasted&&/\.png$/i.test(file.name||'')){var hit=await analyze(file);if(hit)return false;}
  return originalRun?originalRun():false;
 };
 window.FalconSmartRun=window.FalconRawPngRun;
 
-try{var badge=document.createElement('div');badge.id='rawPngEngineBadge';badge.textContent='🟢 Raw PNG Engine V83 Loaded';badge.style.cssText='position:fixed;bottom:12px;left:12px;z-index:99999;background:#073b2a;color:#bfffdc;border:1px solid #19c37d;padding:8px 12px;border-radius:10px;font:700 13px system-ui;box-shadow:0 4px 18px #0008';document.body.appendChild(badge);}catch(e){}
+try{var badge=document.createElement('div');badge.id='rawPngEngineBadge';badge.textContent='🟢 Raw PNG Engine V84 Loaded';badge.style.cssText='position:fixed;bottom:12px;left:12px;z-index:99999;background:#073b2a;color:#bfffdc;border:1px solid #19c37d;padding:8px 12px;border-radius:10px;font:700 13px system-ui;box-shadow:0 4px 18px #0008';document.body.appendChild(badge);}catch(e){}
 })();
