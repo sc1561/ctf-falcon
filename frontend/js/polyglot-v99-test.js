@@ -20,7 +20,7 @@
   var pdfText='';
   try{if(window.pako){var tailBytes=u.slice(pdf), marker=new TextEncoder().encode('stream'), endm=new TextEncoder().encode('endstream');function fb(h,n,s){outer:for(var ii=s||0;ii<=h.length-n.length;ii++){for(var jj=0;jj<n.length;jj++)if(h[ii+jj]!==n[jj])continue outer;return ii;}return -1;}var pos=0;while((pos=fb(tailBytes,marker,pos))>=0){var st=pos+marker.length;while(st<tailBytes.length&&(tailBytes[st]===13||tailBytes[st]===10))st++;var en=fb(tailBytes,endm,st);if(en<0)break;try{pdfText+=new TextDecoder('latin1').decode(pako.inflate(tailBytes.slice(st,en)))+'\n';}catch(e){}pos=en+endm.length;}}}catch(e){}
   var pngPart=null,pdfPart=null,joined=null;
-  var pm=ocrText.match(/(?:academy|flag|ctf|moe)\s*\{[^\r\n]*/i); if(pm)pngPart=pm[0].replace(/\s+/g,'').replace(/[^\x20-\x7e]+$/,'');
+  var cleanOcr=(ocrText||'').replace(/\s+/g,'').replace(/[^A-Za-z0-9_{}@&!$#-]/g,''); var pm=cleanOcr.match(/(?:academy|flag|ctf|moe)\{[^}]{3,}/i); if(pm){pngPart=pm[0]; var pref=pngPart.match(/^([A-Za-z]+)\{/); if(pref&&/^aca.*demy$/i.test(pref[1]))pngPart='academy{'+pngPart.slice(pref[0].length);}
   var tail=all.slice(pdf); var tm=pdfText.match(/\(([^()]{4,}\})\)\s*Tj/i); if(tm)pdfPart=tm[1]; else {tm=tail.match(/[A-Za-z0-9_@&!$#-]{4,}\}/);if(tm)pdfPart=tm[0];}
   if(pngPart&&pdfPart)joined=pngPart+pdfPart;
   if(joined&&!flag(joined))joined=null;
