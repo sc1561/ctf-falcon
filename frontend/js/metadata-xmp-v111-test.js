@@ -8,7 +8,7 @@ async function analyzeJpeg(u,name){
  if(u.length<4||u[0]!==0xff||u[1]!==0xd8)return null;
  var raw=bytesText(u), hits=[], seen={};
  function add(label,val){val=String(val||'').trim();if(!val||seen[val])return;seen[val]=1;var dec=b64(val), fs=flags(dec);if(fs.length)hits.push({label:label,value:val,decoded:dec,flag:fs[0]});}
- var re=/(?:cc:attributionURL|attributionURL|dc:[A-Za-z]+|photoshop:[A-Za-z]+|xmp:[A-Za-z]+)\s*=\s*["']([^"']{12,500})["']/ig,m;
+ var re=/(?:cc:attributionURL|attributionURL|dc:[A-Za-z]+|photoshop:[A-Za-z]+|xmp:[A-Za-z]+)\\s*=\\s*[\"']([^\"']{12,500})[\"']/ig,m;
  while((m=re.exec(raw)))add(m[0].split('=')[0].trim(),m[1]);
  var generic=raw.match(/[A-Za-z0-9+/]{24,}={0,2}/g)||[];generic.slice(0,200).forEach(function(x){add('Metadata/Base64',x);});
  if(!hits.length)return null;
