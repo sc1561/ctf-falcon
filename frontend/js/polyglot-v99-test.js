@@ -24,7 +24,8 @@
   var tail=all.slice(pdf); var tm=pdfText.match(/\(([^()]{4,}\})\)\s*Tj/i); if(tm)pdfPart=tm[1]; else {tm=tail.match(/[A-Za-z0-9_@&!$#-]{4,}\}/);if(tm)pdfPart=tm[0];}
   if(pngPart&&pdfPart)joined=pngPart+pdfPart;
   if(joined&&!flag(joined))joined=null;
-  out.innerHTML='<div class="studentSummary"><h2>🧬 Polyglot Analyzer</h2><div class="solvePath">Magic Bytes → PNG + Embedded PDF → استخراج الجزأين → دمج Flag</div><div class="studentCard success"><h3>✅ تم اكتشاف ملف Polyglot</h3><p>التوقيع الأول: <code>PNG</code></p><p>PDF مضمّن عند البايت: <code>'+pdf+'</code></p>'+(direct?'<h3>🚩 تم العثور على العلم</h3><code>'+esc(direct)+'</code>':joined?'<p>🖼️ جزء PNG: <code>'+esc(pngPart)+'</code></p><p>📄 جزء PDF: <code>'+esc(pdfPart)+'</code></p><h3>🚩 تم دمج العلم</h3><code>'+esc(joined)+'</code>':'<p>تم اكتشاف البنية المزدوجة، لكن تعذر دمج جزأي العلم تلقائيًا.</p>')+'</div></div>';
+  var diag='<details open><summary>🔬 تشخيص الاستخراج</summary><p>PNG OCR: <code>'+esc(ocrText||'—')+'</code></p><p>PDF text: <code>'+esc(pdfText||'—')+'</code></p><p>PNG candidate: <code>'+esc(pngPart||'—')+'</code></p><p>PDF candidate: <code>'+esc(pdfPart||'—')+'</code></p></details>';
+  out.innerHTML='<div class="studentSummary"><h2>🧬 Polyglot Analyzer</h2><div class="solvePath">Magic Bytes → PNG + Embedded PDF → استخراج الجزأين → دمج Flag</div><div class="studentCard success"><h3>✅ تم اكتشاف ملف Polyglot</h3><p>التوقيع الأول: <code>PNG</code></p><p>PDF مضمّن عند البايت: <code>'+pdf+'</code></p>'+(direct?'<h3>🚩 تم العثور على العلم</h3><code>'+esc(direct)+'</code>':joined?'<p>🖼️ جزء PNG: <code>'+esc(pngPart)+'</code></p><p>📄 جزء PDF: <code>'+esc(pdfPart)+'</code></p><h3>🚩 تم دمج العلم</h3><code>'+esc(joined)+'</code>':'<p>تم اكتشاف البنية المزدوجة، لكن تعذر دمج جزأي العلم تلقائيًا.</p>')+diag+'</div></div>';
   return false;
  }
  window.FalconPolyglotRun=run; window.FalconSmartRun=run;
