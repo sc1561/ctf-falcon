@@ -3,7 +3,7 @@ import base64, json, os, re, shutil, subprocess, tempfile, gzip
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 HOST="127.0.0.1"; PORT=8765
-VERSION="0.5"
+VERSION="0.6"
 def find_steghide():
  candidates=[
   shutil.which("steghide"),
@@ -14,17 +14,22 @@ def find_steghide():
  for c in candidates:
   if c and Path(c).is_file(): return str(Path(c))
  return None
-def find_tool(name):\n candidates=[shutil.which(name), shutil.which(name+".exe"), str(Path(r"C:\\Program Files\\sleuthkit\\bin")/(name+".exe")), str(Path(__file__).resolve().parent/"tools"/"sleuthkit"/(name+".exe"))]\n for c in candidates:\n  if c and Path(c).is_file(): return str(Path(c))\n return None\ndef status():
+def find_tool(name):\n candidates=[shutil.which(name), shutil.which(name+".exe"), str(Path(r"C:\\Program Files\\sleuthkit\\bin")/(name+".exe")),
+  str(Path(r"C:\\Program Files\\Sleuth Kit\\bin")/(name+".exe")),
+  str(Path(r"C:\\Falcon\\sleuthkit\\bin")/(name+".exe")),
+  str(Path(r"C:\\Falcon\\sleuthkit")/(name+".exe")),
+  str(Path(__file__).resolve().parent/"tools"/"sleuthkit"/"bin"/(name+".exe")),
+  str(Path(__file__).resolve().parent/"tools"/"sleuthkit"/(name+".exe"))]\n for c in candidates:\n  if c and Path(c).is_file(): return str(Path(c))\n return None\ndef status():
  return {"ok":True,"engine":"Falcon Local Engine","version":VERSION,
  "python":True,"steghide":bool(find_steghide()),"steghide_path":find_steghide(),
  "ready":bool(find_steghide())}
 def dashboard():
- st=status(); sh="جاهز" if st["steghide"] else "غير مثبت"
+ st=status(); sh="جاهز" if st["steghide"] else "غير مثبت"; sk="جاهز — fls + mactime" if st["sleuthkit"] else "غير مثبت / غير مكتشف"
  ready="جاهز للتحليل" if st["ready"] else "يحتاج تثبيت Steghide"
  return """<!doctype html><meta charset="utf-8"><title>Falcon Local Engine</title>
  <style>body{font-family:Arial;direction:rtl;background:#07111f;color:#eef;padding:40px;max-width:760px;margin:auto}.c{background:#102238;padding:22px;border-radius:16px;margin:14px 0}code{direction:ltr;display:inline-block}</style>
  <h1>🦅 Falcon Local Engine</h1><div class=c><b>حالة المحرك:</b> %s</div>
- <div class=c>🟢 Python جاهز<br>%s Steghide: %s</div>
+ <div class=c>🟢 Python جاهز<br>%s Steghide: %s<br>%s Sleuth Kit: %s</div>
  <div class=c><b>الخطوة التالية</b><p>%s</p><code>http://127.0.0.1:8765/health</code></div>""" % (
  ready, "🟢" if st["steghide"] else "🔴", sh,
  "يمكنك الآن استخدام أدوات الاستخراج المحلية." if st["ready"] else "ثبّت Steghide ثم أغلق المحرك وأعد تشغيله.")
@@ -76,6 +81,6 @@ if __name__=="__main__":
  print("🦅 Falcon Local Engine v"+VERSION)
  print(f"🌐 http://{HOST}:{PORT}")
  print("🟢 Python: ready")
- exe=find_steghide(); print(("🟢" if exe else "🔴")+" Steghide: "+("ready — "+exe if exe else "not installed"))
+ exe=find_steghide(); print(("🟢" if exe else "🔴")+" Steghide: "+("ready — "+exe if exe else "not installed"))\n sk=bool(find_tool("fls") and find_tool("mactime")); print(("🟢" if sk else "🔴")+" Sleuth Kit: "+("ready — "+find_tool("fls") if sk else "fls/mactime not found"))
  print("Localhost only. Press Ctrl+C to stop.")
  ThreadingHTTPServer((HOST,PORT),H).serve_forever()
