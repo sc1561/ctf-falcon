@@ -37,5 +37,10 @@
    for(var i=0;i<hits.length;i++)html+='<div class="flag">'+esc(hits[i])+'</div>';result.innerHTML=html+'</div></div>';result.className='result';result.scrollIntoView({behavior:'smooth',block:'start'});return true;
   }catch(e){return false;}
  }
- window.FalconSmartRun=async function(){var inp=byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';if(file&&!pasted){var hit=await analyze(file);if(hit)return false;}return originalRun?originalRun():false;};
+ window.FalconRawPngRun=async function(){
+ var inp=byId('fileInput'),ta=byId('text'),file=(inp&&inp.files&&inp.files[0])||window.__falconDroppedFile,pasted=ta?ta.value.trim():'';
+ if(file&&!pasted&&/\.png$/i.test(file.name||'')){var hit=await analyze(file);if(hit)return false;}
+ return originalRun?originalRun():false;
+};
+window.FalconSmartRun=window.FalconRawPngRun;
 })();
