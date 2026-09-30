@@ -463,7 +463,8 @@
   var busy = false;
   function challengeUrl() {
     var input = document.getElementById('text');
-    var matches = ((input && input.value) || '').match(/https?:\/\/[^\s<>\]"')]+/gi) || [];
+    var pasted = ((input && input.value) || '').replace(/(https?)\\:/gi, '$1:');
+    var matches = pasted.match(/https?:\/\/[^\s<>\]"')]+/gi) || [];
     var artifactFallback = null;
     for (var i=0; i<matches.length; i++) {
       try {
@@ -478,22 +479,34 @@
     }
     return artifactFallback;
   }
+  function isHashgatePrompt(text) {
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?Hashgate(?=\s|$|[—-])/im.test(String(text || '')) &&
+      /(?:picoCTF|Web\s+Exploitation|employee|organisation|organization)/i.test(String(text || ''));
+  }
+  global.FalconWebSessions.challengeUrl = challengeUrl;
+  global.FalconWebSessions.isHashgatePrompt = isHashgatePrompt;
   global.FalconWebSessionRun = async function() {
     // Route the picoCTF No FA prompt to its artifact guidance before generic
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
+    var pastedText=(document.getElementById('text')||{}).value||'';
     var url=challengeUrl();
+    if(!url && isHashgatePrompt(pastedText)) {
+      var missingUrl=document.getElementById('result');
+      if(missingUrl){missingUrl.classList.remove('hidden');missingUrl.textContent='🦅 تعرّف صقر على Hashgate. لم يجد رابط Instance صالحًا في النص؛ الصق رابط المثيل كاملًا مثل http://xebec.cylabacademy.net:29063/ ثم اضغط «حلّل التحدي». لن يحلل وصف التحدي كـ ROT13.';}
+      return false;
+    }
     if(!url) return previous ? previous() : false;
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.19.0…';
+      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.22.0…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
-      if(version[0]<2||(version[0]===2&&version[1]<19))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.19.0 ثم أعد تشغيل المحرك.');
+      if(version[0]<2||(version[0]===2&&version[1]<22))
+        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.22.0 ثم أعد تشغيل المحرك.');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');
