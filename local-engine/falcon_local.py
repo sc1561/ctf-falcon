@@ -62,13 +62,15 @@ def reply(h,code,obj):
     h.send_header("Access-Control-Allow-Origin","https://sc1561.github.io")
     h.send_header("Access-Control-Allow-Methods","GET,POST,OPTIONS")
     h.send_header("Access-Control-Allow-Headers","Content-Type, X-Filename")
+    h.send_header("Access-Control-Allow-Private-Network","true")
     h.send_header("Content-Length",str(len(b))); h.end_headers(); h.wfile.write(b)
 
 class H(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204); self.send_header("Access-Control-Allow-Origin","https://sc1561.github.io")
         self.send_header("Access-Control-Allow-Methods","GET,POST,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers","Content-Type, X-Filename"); self.end_headers()
+        self.send_header("Access-Control-Allow-Headers","Content-Type, X-Filename")
+        self.send_header("Access-Control-Allow-Private-Network","true"); self.end_headers()
 
     def do_GET(self):
         path=self.path.split("?",1)[0]
