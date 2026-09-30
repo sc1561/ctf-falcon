@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.2.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.3.1"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -90,8 +90,10 @@ def body_macb(path):
 
 def session_audit(url):
     u=urllib.parse.urlsplit(url)
-    if u.scheme not in ("http","https") or not (u.hostname or "").endswith(".cylabacademy.net") or u.username or u.password:
-        raise ValueError("Use a cylabacademy.net CTF instance URL")
+    host=(u.hostname or "")
+    academy=host.endswith(".cylabacademy.net") or host.endswith(".cylabacademy.org")
+    if u.scheme not in ("http","https") or not academy or u.username or u.password:
+        raise ValueError("Use a cylabacademy.net/.org CTF instance URL")
     import web_session_audit
     origin=urllib.parse.urlunsplit((u.scheme,u.netloc,"/","",""))
     result=web_session_audit.run_audit(origin,timeout=15,insecure_tls=False,demonstrate_register_requirement=False)

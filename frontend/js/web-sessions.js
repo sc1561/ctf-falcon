@@ -77,6 +77,9 @@
     border-radius:12px;padding:14px;margin:12px 0}
   .fws-err h4{margin:0 0 8px;color:var(--fws-red)}
   .fws-h{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:800;margin:0 0 4px}
+  .fws-block{display:block;white-space:pre-wrap;word-break:break-word;direction:ltr;text-align:left;
+    background:rgba(255,255,255,.05);border-radius:8px;padding:8px 10px;margin:4px 0 8px;
+    font-family:monospace;font-size:13px;color:var(--fws-txt)}
   `;
 
   function injectCSS() {
@@ -104,6 +107,12 @@
 
   // ---- عرض العلم --------------------------------------------------------- //
   function renderFlag(res) {
+    if (!res.success && res.recognized === false) {
+      var info = el("div", "fws-flag fail");
+      info.appendChild(el("strong", null, "ℹ️ لم يتعرف صقر على نمط التحدي."));
+      info.appendChild(el("div", "fws-muted", "عُرضت المكتشفات الفعلية أدناه، ولم يُنفَّذ أي مسار تلقائيًا."));
+      return info;
+    }
     var box = el("div", "fws-flag" + (res.success ? "" : " fail"));
     if (res.success) {
       var head = el("div", null);
@@ -162,17 +171,43 @@
     injectCSS();
     container.classList.add("fws");
     container.innerHTML = "";
+
+    if (res.challenge) {
+      var typ = el("div", "fws-card");
+      typ.appendChild(el("div", "fws-h", "🎯 نوع التحدي"));
+      typ.appendChild(el("div", null, res.challenge + (res.analyzer && res.analyzer !== "none" ? "  (المحلل: " + res.analyzer + ")" : "")));
+      container.appendChild(typ);
+    }
+
     container.appendChild(renderFlag(res));
+
+    // كتلة التعليق: الأصلي + بعد فك ROT13 (لتحديات مثل Crack the Gate)
+    var dd = res.discovered || {};
+    if (dd.comment_raw || dd.comment_decoded) {
+      var cm = el("div", "fws-card");
+      cm.appendChild(el("div", "fws-h", "🧩 تعليق المطوّر"));
+      if (dd.comment_raw) { cm.appendChild(el("div", "fws-muted", "الأصلي (مُرمّز):")); cm.appendChild(el("code", "fws-block", dd.comment_raw)); }
+      if (dd.comment_decoded) { cm.appendChild(el("div", "fws-muted", "بعد فك ROT13:")); cm.appendChild(el("code", "fws-block", dd.comment_decoded)); }
+      container.appendChild(cm);
+    }
 
     if (res.discovered) {
       var d = res.discovered, meta = el("div", "fws-card");
       meta.appendChild(el("div", "fws-h", "🔎 ما اكتُشف"));
       var ul = el("ul", "fws-ul");
+      // Old Sessions
       if (d.register_fields) ul.appendChild(el("li", null, "حقول التسجيل: " + d.register_fields.join(", ")));
       if (d.sessions_hint) ul.appendChild(el("li", null, "الصفحة المسرِّبة: " + d.sessions_hint + " (عدد الجلسات: " + (d.sessions_count || 0) + ")"));
       if (d.admin_session_decoded) ul.appendChild(el("li", null, "جلسة المشرف: " + d.admin_session_decoded));
-      meta.appendChild(ul);
-      container.appendChild(meta);
+      // Crack the Gate
+      if (d.dev_header) ul.appendChild(el("li", null, "ترويسة المطوّر: " + d.dev_header.name + ": " + d.dev_header.value));
+      if (d.login_path) ul.appendChild(el("li", null, "مسار الدخول: " + d.login_path + (d.response_status ? " (الحالة: " + d.response_status + ")" : "")));
+      if (d.email_used) ul.appendChild(el("li", null, "البريد المستخدم: " + d.email_used));
+      // غير معروف
+      if (d.emails && d.emails.length) ul.appendChild(el("li", null, "عناوين بريد في الصفحة: " + d.emails.join(", ")));
+      if (d.decoded_comments && d.decoded_comments.length)
+        d.decoded_comments.forEach(function (c) { ul.appendChild(el("li", null, "تعليق (ROT13): " + c)); });
+      if (ul.childNodes.length) { meta.appendChild(ul); container.appendChild(meta); }
     }
 
     var steps = el("div", "fws-card");
@@ -345,7 +380,7 @@
     var input = document.getElementById('text');
     var matches = ((input && input.value) || '').match(/https?:\/\/[^\s<>\]"')]+/gi) || [];
     for (var i=0; i<matches.length; i++) {
-      try { var u=new URL(matches[i]); if(u.hostname.endsWith('.cylabacademy.net')) return u.href; } catch (_) {}
+      try { var u=new URL(matches[i]); if(u.hostname.endsWith('.cylabacademy.net')||u.hostname.endsWith('.cylabacademy.org')) return u.href; } catch (_) {}
     }
     return null;
   }
@@ -355,15 +390,15 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🍪 جارٍ تحليل Old Sessions عبر المحرك المحلي v2.2.0…';
+    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.3.1…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       if(!health.version||Number(health.version.split('.')[0])<2||
-         (Number(health.version.split('.')[0])===2&&Number(health.version.split('.')[1])<2))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.2.0 ثم أعد تشغيل المحرك.');
+         (Number(health.version.split('.')[0])===2&&Number(health.version.split('.')[1])<3))
+        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.3.1 ثم أعد تشغيل المحرك (يدعم Crack the Gate وOld Sessions).');
       var res=await audit(engine,url,{});
-      if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك لا تتوافق مع محلل Old Sessions.');
+      if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');
       renderResult(out,res);
     } catch(e) { out.textContent='تعذر تحليل التحدي: '+e.message; }
     finally {busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});}

