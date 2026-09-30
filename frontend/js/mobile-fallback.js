@@ -482,12 +482,34 @@ function analyzePdfMetadata(u8,name,result){
  else{html+='<div class="studentCard next"><b>3️⃣ Smart Rescue Mode</b><p>لم تظهر صيغة Flag واضحة في الحقول القياسية. افحص Metadata يدويًا باستخدام <code>exiftool '+esc(name)+'</code> أو خصائص المستند، وركّز على Title وAuthor وSubject وKeywords وCreator.</p><p><a href="https://www.metadata2go.com/" target="_blank" rel="noopener noreferrer">🌐 Metadata2Go — فحص Metadata خارجي</a></p><small>⚠️ الموقع الخارجي يتطلب رفع الملف؛ استخدمه فقط مع ملفات CTF التدريبية المصرح بها.</small></div>';}
  result.innerHTML=html+'</div>';return true;
 }
+async function analyzeWithLocalArtifacts(file,result){
+ var lower=String(file.name||'').toLowerCase();
+ /* Preserve specialist browser analyzers for formats with richer parsers. */
+ if(/\.(pcap|pcapng|cap|jpe?g|png|gif|bmp|webp|pdf|log|access|syslog)$/i.test(lower))return false;
+ var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:'http://127.0.0.1:8765';
+ var controller=typeof AbortController!=='undefined'?new AbortController():null,timer=controller?setTimeout(function(){controller.abort();},30000):null;
+ try{
+  var response=await fetch(engine+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':String(file.name||'upload.bin').replace(/[\r\n]/g,'_').slice(0,240)},body:file,cache:'no-store',signal:controller?controller.signal:undefined});
+  if(!response.ok){if(response.status===404||response.status===405||response.status===501)return false;throw new Error('HTTP '+response.status);}
+  var data=await response.json();if(!data.ok)return false;
+  if(!(data.scanned_nodes>1||data.extracted_count>0||(data.flags||[]).length))return false;
+  var html='<div class="studentSummary"><h2>🦅 فحص صقر الذكي متعدد الملفات</h2><div class="studentCard"><b>1️⃣ ما الذي فُحص؟</b><p>'+esc(data.summary||'فحص صقر الملف محليًا.')+' فُحصت <strong>'+Number(data.scanned_nodes||0)+'</strong> عناصر، واستُخرج <strong>'+Number(data.extracted_count||0)+'</strong> عنصرًا، بإجمالي '+Number(data.expanded_bytes||0).toLocaleString()+' بايت.</p><div class="solvePath">الملف → أرشيفات / ضغط → ملفات مضمّنة → ترميزات → Flag Hunter</div></div>';
+  if((data.flags||[]).length){html+='<div class="studentCard success"><b>2️⃣ أعلام مرشحة مع مصدرها 🚩</b>';data.flags.forEach(function(x){html+='<div class="flag">'+esc(x.flag)+'</div><p><small>المصدر: <code>'+esc(x.path||'')+'</code></small></p>';});html+='</div>';}
+  if((data.artifacts||[]).length){html+='<div class="studentCard"><b>3️⃣ الملفات والعناصر المستخرجة</b>';data.artifacts.forEach(function(x,i){html+='<p><strong>'+esc(x.kind||'FILE')+'</strong> — '+Number(x.size||0).toLocaleString()+' بايت<br><small>المسار: <code>'+esc(x.path||x.name||'')+'</code></small>'+(x.download_b64?'<br><button type="button" data-falcon-artifact="'+i+'">⬇️ تنزيل هذا العنصر</button>':'')+'</p>';});html+='</div>';}
+  if(data.truncated)html+='<div class="studentCard next"><b>حدود الفحص</b><p>توقف الفحص عند حدود الحجم أو العمق أو عدد الملفات لحماية الجهاز. العناصر الكبيرة أو المشفّرة قد تحتاج إلى كلمة مرور أو محلل متخصص.</p></div>';
+  if((data.findings||[]).length){html+='<details class="studentCard"><summary>ملاحظات الفحص</summary><ul>';data.findings.forEach(function(x){html+='<li>'+esc(x)+'</li>';});html+='</ul></details>';}
+  html+='<div class="studentCard next"><b>الخطوة التالية</b><p>راجع مسار كل نتيجة، ثم نزّل الملفات المستخرجة لتحليلها منفردة عند الحاجة. لا يرسل المحرك هذه الملفات خارج جهازك.</p></div></div>';
+  result.innerHTML=html;
+  result.querySelectorAll('[data-falcon-artifact]').forEach(function(button){button.onclick=function(){var item=(data.artifacts||[])[Number(button.getAttribute('data-falcon-artifact'))];if(!item||!item.download_b64)return;var raw=atob(item.download_b64),bytes=new Uint8Array(raw.length);for(var j=0;j<raw.length;j++)bytes[j]=raw.charCodeAt(j);var url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'})),a=document.createElement('a');a.href=url;a.download=String(item.name||'extracted.bin').split(/[\\/]/).pop();a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);};});
+  return true;
+ }catch(e){return false;}finally{if(timer)clearTimeout(timer);}
+}
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(analyzeJpegMetadata(u8,name,result))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;} if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(analyzeJpegMetadata(u8,name,result))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;}if(await analyzeWithLocalArtifacts(file,result))return; if(await analyzeEmbeddedContainer(u8,result))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
@@ -558,7 +580,7 @@ window.FalconNoFaRun=async function(){
   var output=document.createElement('p');var copyOtp=document.createElement('button');copyOtp.type='button';copyOtp.textContent='📋 نسخ رمز OTP';copyOtp.hidden=true;
   button.onclick=async function(){button.disabled=true;copyOtp.hidden=true;try{var dec=await fetch(engine+'/no-fa/decode-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookie:input.value}),cache:'no-store'}).then(function(r){return r.json();});if(!dec.ok)throw new Error(dec.error||'لم نتمكن من قراءة الجلسة');if(!dec.otp_secret){output.textContent='لم نجد رمز OTP في هذه الجلسة. تأكد أنك سجلت الدخول باسم admin وانسخت Value لصف session.';return;}output.textContent='رمز OTP: '+dec.otp_secret+' — ارجع الآن إلى صفحة التحدي، أدخل الرمز واضغط تحقق. بعد ظهور العلم، انسخه إلى منصة المسابقة. الرمز صالح لمدة 120 ثانية.';copyOtp.hidden=false;copyOtp.onclick=async function(){try{await navigator.clipboard.writeText(String(dec.otp_secret));copyOtp.textContent='✅ تم نسخ رمز OTP';}catch(_){output.textContent+=' حدّد الرمز أعلاه وانسخه يدويًا.';}};}catch(e){output.textContent='تعذر استخراج الرمز: '+e.message+' إذا انتهت مهلة 120 ثانية، سجّل الدخول من جديد وانسخ قيمة session الجديدة.';}finally{button.disabled=false;}};
   cookieBox.appendChild(guide);cookieBox.appendChild(label);cookieBox.appendChild(input);cookieBox.appendChild(button);cookieBox.appendChild(output);cookieBox.appendChild(copyOtp);result.appendChild(cookieBox);
- }catch(e){analyzeText(raw,true,'المحلل الذكي');var note=document.createElement('div');note.className='finding warn';note.textContent='لم يتمكن صقر من قراءة المجلد المحلي تلقائيًا ('+e.message+'). حدّث Falcon Local Engine إلى 2.20.3 وشغّله من C:\\Falcon ثم أعد التحليل.';result.appendChild(note);}
+ }catch(e){analyzeText(raw,true,'المحلل الذكي');var note=document.createElement('div');note.className='finding warn';note.textContent='لم يتمكن صقر من قراءة المجلد المحلي تلقائيًا ('+e.message+'). حدّث Falcon Local Engine إلى 2.21.0 وشغّله من C:\\Falcon ثم أعد التحليل.';result.appendChild(note);}
  result.scrollIntoView({behavior:'smooth',block:'start'});return true;
 };
 window.FalconRun=function(deep){

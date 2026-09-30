@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.20.3"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.21.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -146,6 +146,17 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path=self.path.split("?",1)[0]
+        if path=="/artifacts/analyze":
+            n=int(self.headers.get("Content-Length","0"))
+            if n<=0 or n>64*1024*1024: return reply(self,413,{"ok":False,"error":"حجم الملف يجب أن يكون بين 1 بايت و64 ميغابايت."})
+            try:
+                raw=self.rfile.read(n)
+                from artifact_extractor import analyze_artifact
+                result=analyze_artifact(raw,Path(self.headers.get("X-Filename","upload.bin")).name)
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
+            except ValueError as e: return reply(self,413,{"ok":False,"error":str(e)[:300]})
+            except Exception as e: return reply(self,422,{"ok":False,"error":"تعذر تحليل الملف محليًا","detail":str(e)[:300]})
         if path=="/web/session-audit":
             n=int(self.headers.get("Content-Length","0"))
             if not 0<n<=8192: return reply(self,413,{"ok":False,"error":"Invalid request size"})
