@@ -5,8 +5,9 @@ const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../frontend/js/web-sessions.js'), 'utf8');
 const textarea = {value: ''};
-const result = {classList: {remove() {}}, textContent: ''};
-const document = {getElementById(id) { return id === 'text' ? textarea : id === 'result' ? result : null; }};
+function element(tag){return {tagName:tag,children:[],classList:{remove(){},add(){}},appendChild(x){this.children.push(x);},scrollIntoView(){},textContent:'',innerHTML:''};}
+const result = element('section');
+const document = {head:element('head'),createElement:element,getElementById(id) { return id === 'text' ? textarea : id === 'result' ? result : null; }};
 const window = {};
 vm.runInNewContext(source, {window, document, URL, fetch() { throw new Error('fetch should not run in this extraction test'); }, console});
 
@@ -26,5 +27,12 @@ assert.equal(window.FalconWebSessions.isHashgatePrompt(textarea.value), false);
   await window.FalconWebSessionRun();
   assert.match(result.textContent, /تعرّف صقر على Hashgate/);
   assert.match(result.textContent, /لن يحلل وصف التحدي كـ ROT13/);
-  console.log('Hashgate challenge routing tests passed');
+  textarea.value = 'Credential Stuffing\nWeb Exploitation\nhttps://challenge-files.cylabacademy.net/library/test/creds-dump.txt\nnc xebec.cylabacademy.net 12360';
+  assert.equal(window.FalconWebSessions.isCredentialStuffingPrompt(textarea.value), true);
+  await window.FalconWebSessionRun();
+  assert.equal(result.children.length, 2, 'credential challenge should render artifact and TCP guidance, not HTTP results');
+  const visible=JSON.stringify(result.children);
+  assert.match(visible,/Credential Stuffing/);
+  assert.match(visible,/xebec\.cylabacademy\.net:12360/);
+  console.log('Hashgate and Credential Stuffing challenge routing tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

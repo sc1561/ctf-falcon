@@ -1,4 +1,4 @@
-# Falcon Local Engine v2.23.0
+# Falcon Local Engine v2.24.0
 
 محرك محلي اختياري لـ CTF Falcon. يعمل على الجهاز فقط على `127.0.0.1:8765` ولا يفتح خادمًا على الشبكة.
 
@@ -12,7 +12,11 @@
 
 ## تحليل تحدي No FA
 
-ضع `app.py` و`users.db` داخل `C:\Falcon\analysis`. يقرأ الإصدار 2.23.0 هذين الملفين محليًا عبر `POST /no-fa/analyze`، ويفحص قاعدة البيانات للعثور على حساب admin والتحقق من مرشحات SHA-256 المعروفة. يعرض دليلًا يبيّن للطالب سطر SHA-256 في app.py، وأعمدة الجدول وغياب Salt، وكيف قورنت بصمات الكلمات المرشحة. لا يرسل بيانات اعتماد إلى المثيل.
+ضع `app.py` و`users.db` داخل `C:\Falcon\analysis`. يقرأ الإصدار 2.24.0 هذين الملفين محليًا عبر `POST /no-fa/analyze`، ويفحص قاعدة البيانات للعثور على حساب admin والتحقق من مرشحات SHA-256 المعروفة. يعرض دليلًا يبيّن للطالب سطر SHA-256 في app.py، وأعمدة الجدول وغياب Salt، وكيف قورنت بصمات الكلمات المرشحة. لا يرسل بيانات اعتماد إلى المثيل.
+
+## Credential Stuffing (picoCTF)
+
+احفظ `creds-dump.txt` في `C:\Falcon\analysis` ثم شغّل التحليل الموجّه من واجهة صقر. المحرك يقرأ صيغة `username;password` محليًا، ولا يتصل إلا بخدمة التحدي الثابتة `xebec.cylabacademy.net:12360` بعد ضغط الطالب زر البدء. الحد الأقصى 1500 زوج، بترتيب الملف وفاصل زمني 0.1 ثانية؛ لا يطبع كلمات المرور.
 
 بعد تسجيل الدخول في المثيل، اتبع الخطوات الظاهرة في صقر للوصول إلى Application ثم Storage ثم Cookies، وانسخ قيمة `session` إلى المحلل المحلي. يقرأ `POST /no-fa/decode-session` حقول cookie الموقعة من Flask، ومنها `otp_secret`، من دون التحقق من التوقيع؛ استخدم النتيجة فقط في مختبر CTF المصرح به.
 
@@ -24,6 +28,7 @@
 - `GET /health`
 - `POST /artifacts/analyze`
 - `POST /no-fa/analyze`
+- `POST /credential-stuffing/solve` (requires `{"confirm":true}` from the challenge button)
 - `POST /no-fa/decode-session`
 - `POST /web/session-audit`
 - `POST /timeline/analyze`

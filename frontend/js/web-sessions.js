@@ -483,13 +483,57 @@
     return /(?:^|\n)\s*(?:#{1,6}\s*)?Hashgate(?=\s|$|[—-])/im.test(String(text || '')) &&
       /(?:picoCTF|Web\s+Exploitation|employee|organisation|organization)/i.test(String(text || ''));
   }
+  function isCredentialStuffingPrompt(text) {
+    text=String(text||'');
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?Credential\s+Stuffing(?=\s|$|[—-])/im.test(text) &&
+      /creds-dump\.txt/i.test(text) && /xebec\.cylabacademy\.net\s+12360/i.test(text);
+  }
+  async function runCredentialStuffing(text) {
+    if(busy)return false;
+    busy=true;
+    var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();out.innerHTML='';
+    var artifacts=renderArtifactGuidance(text);if(artifacts)out.appendChild(artifacts);
+    var card=el('div','fws-card');
+    card.appendChild(el('div','fws-h','🧭 تحدي TCP: Credential Stuffing'));
+    card.appendChild(el('p',null,'احفظ الملف creds-dump.txt داخل C:\\Falcon\\analysis. بعد ذلك اضغط الزر ليجرب صقر سجلات الملف على خدمة هذا التحدي فقط: xebec.cylabacademy.net:12360.'));
+    card.appendChild(el('p','fws-muted','الحد الأقصى 1500 سجل، بترتيب الملف، مع فاصل زمني قصير. لا يرسل صقر الطلب إلى رابط الملف ولا إلى أي موقع آخر، ولا يعرض كلمات المرور في النتيجة.'));
+    var button=el('button','fws-btn','▶ ابدأ فحص ملف التحدي');
+    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.24.0 أو أحدث.');
+    card.appendChild(button);card.appendChild(status);out.appendChild(card);
+    button.onclick=async function(){
+      button.disabled=true;status.textContent='يجري فحص الملف والاتصال بخدمة CTF المحددة…';
+      try {
+        var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
+        var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
+        var v=(health.version||'0.0.0').split('.').map(Number);
+        if(v[0]<2||(v[0]===2&&v[1]<24))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.24.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/credential-stuffing/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true}),cache:'no-store'});
+        var data=await response.json();
+        if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تشغيل فحص ملف الاعتمادات.');
+        status.textContent=data.success?'✅ عُثر على العلم بعد '+data.attempts+' محاولة.':'انتهى الفحص دون العثور على العلم بعد '+data.attempts+' محاولة.';
+        if(data.success){
+          var flag=el('div','fws-flag');flag.appendChild(el('strong',null,'✅ العلم المستخرج:'));
+          var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));
+          var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};
+          row.appendChild(copy);flag.appendChild(row);flag.appendChild(el('div','fws-muted','اسم المستخدم المطابق: '+(data.username||'غير معروض')+' — انسخ العلم بنفسك إلى منصة المسابقة.'));
+          out.appendChild(flag);
+        }
+      }catch(e){status.textContent='تعذر إكمال التحليل: '+e.message;button.disabled=false;}
+    };
+    out.scrollIntoView({behavior:'smooth',block:'start'});
+    busy=false;
+    return false;
+  }
   global.FalconWebSessions.challengeUrl = challengeUrl;
   global.FalconWebSessions.isHashgatePrompt = isHashgatePrompt;
+  global.FalconWebSessions.isCredentialStuffingPrompt = isCredentialStuffingPrompt;
+  global.FalconWebSessions.runCredentialStuffing = runCredentialStuffing;
   global.FalconWebSessionRun = async function() {
     // Route the picoCTF No FA prompt to its artifact guidance before generic
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
     var pastedText=(document.getElementById('text')||{}).value||'';
+    if(isCredentialStuffingPrompt(pastedText))return runCredentialStuffing(pastedText);
     var url=challengeUrl();
     if(!url && isHashgatePrompt(pastedText)) {
       var missingUrl=document.getElementById('result');
@@ -500,13 +544,13 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.23.0…';
+      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.24.0…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
-      if(version[0]<2||(version[0]===2&&version[1]<23))
-        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.23.0 ثم أعد تشغيل المحرك.');
+      if(version[0]<2||(version[0]===2&&version[1]<24))
+        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.24.0 ثم أعد تشغيل المحرك.');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');

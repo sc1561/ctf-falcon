@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.23.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.24.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -92,12 +92,20 @@ def body_macb(path):
     return [render(e) for e in events]
 
 def session_audit(url, challenge_text="", email=None):
+    import web_session_audit
+    named=web_session_audit.detect_named_challenge(challenge_text)
+    if named and named[1]=="credential-stuffing":
+        return {"ok":True,"engine_version":VERSION,"target":"TCP xebec.cylabacademy.net:12360",
+          "challenge":"Credential Stuffing","analyzer":"credential-stuffing","recognized":True,
+          "success":False,"steps":[],"discovered":{"protocol":"TCP","file":"creds-dump.txt"},
+          "explanation_ar":["هذا التحدي يستخدم اتصال TCP، وليس صفحة ويب. لم يُرسل أي طلب HTTP.",
+            "احفظ creds-dump.txt في C:\\Falcon\\analysis، ثم استخدم زر فحص الملف المخصص لهذا التحدي."],
+          "warnings":["لم يبدأ اختبار السجلات؛ يلزم تشغيل المسار المخصص بزر الطالب بعد حفظ الملف."]}
     u=urllib.parse.urlsplit(url)
     host=(u.hostname or "")
     academy=host.endswith(".cylabacademy.net") or host.endswith(".cylabacademy.org")
     if u.scheme not in ("http","https") or not academy or u.username or u.password:
         raise ValueError("Use a cylabacademy.net/.org CTF instance URL")
-    import web_session_audit
     origin=urllib.parse.urlunsplit((u.scheme,u.netloc,"/","",""))
     result=web_session_audit.run_audit(origin,timeout=15,insecure_tls=False,demonstrate_register_requirement=False,challenge_text=challenge_text,email=email)
     result["ok"]=True
@@ -171,6 +179,18 @@ class H(BaseHTTPRequestHandler):
             try:
                 from no_fa_analysis import analyze_artifacts
                 return reply(self,200,analyze_artifacts(ANALYSIS_ROOT))
+            except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
+        if path=="/credential-stuffing/solve":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=8192: return reply(self,413,{"ok":False,"error":"Invalid request size"})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ المحاولة من زر التحدي بعد مراجعة الهدف والملف."})
+                from credential_stuffing import solve
+                result=solve(ANALYSIS_ROOT/"creds-dump.txt")
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
             except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
         if path=="/no-fa/decode-session":
             n=int(self.headers.get("Content-Length","0"))
