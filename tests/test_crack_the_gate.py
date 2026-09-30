@@ -152,6 +152,24 @@ if __name__ == "__main__":
     check("spaced fetch with long options", w.extract_login_fetch("fetch ( '/login', {method:'POST',headers:{'Content-Type':'application/json'}, " + " " * 600 + "body:JSON.stringify({email,password})})")["fields"] == ["email", "password"])
     check("JSON variable fields", w.extract_login_fetch("<script>const data={email,password};fetch('/login',{method:'POST',body:JSON.stringify(data)})</script>")["fields"] == ["email", "password"])
     check("unrelated fetch isolation", w.extract_login_fetch("fetch('/stats',{method:'GET'});fetch('/login',{method:'POST',body:JSON.stringify({email,password})})")["path"] == "/login")
+    srv, base = mock.start_server()
+    try:
+        from unittest.mock import patch
+        original=w.do_recon
+        with patch.object(w, "do_recon", wraps=original) as recon:
+            def without_email(*args):
+                result=original(*args);result['emails']=[];return result
+            recon.side_effect=without_email
+            result=w.run_audit(base, challenge_text="Login: student@example.org")
+            check("challenge text email forwarded", result['discovered']['email_used']=='student@example.org')
+            result=w.run_audit(base)
+            check("missing email requests input before login", bool(result.get('needs_input')) and len(result['steps'])==1)
+            result=w.run_audit(base, challenge_text="a@example.org b@example.org")
+            check("ambiguous emails require choice", bool(result.get('needs_input')) and len(result['steps'])==1)
+            result=w.run_audit(base, email="selected@example.org", challenge_text="a@example.org b@example.org")
+            check("explicit email overrides candidates", result['discovered']['email_used']=='selected@example.org')
+    finally:
+        srv.shutdown()
     test_happy_path()
     test_reject_401()
     test_no_flag()

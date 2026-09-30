@@ -41,11 +41,11 @@ url = "http://127.0.0.1:" + str(engine_server.server_port)
 
 try:
     health = json.load(urllib.request.urlopen(url + "/health"))
-    assert health["version"] == "2.3.2", health
+    assert health["version"] == "2.3.3", health
 
     req = urllib.request.Request(
         url + "/web/session-audit",
-        data=json.dumps({"url": f"http://{MAPPED}:{target_port}/"}).encode(),
+        data=json.dumps({"url": f"http://{MAPPED}:{target_port}/", "challenge_text": "Use player@example.org"}).encode(),
         headers={"Content-Type": "application/json"},
     )
     with patch.object(w.http.client, "HTTPConnection", LocalConnection):
@@ -58,6 +58,7 @@ try:
     assert data["analyzer"] == "crack-the-gate", data["analyzer"]
     assert data["success"] is True, data
     assert data["flag"] == mock.FLAG, data["flag"]
+    assert data["discovered"]["email_used"] == "player@example.org"
     assert data["discovered"]["dev_header"]["name"] == "X-Dev-Access"
     # لم يستبدلها محلل آخر ولم تُطلب مسارات Old Sessions
     from urllib.parse import urlsplit

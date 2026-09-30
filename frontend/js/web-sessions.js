@@ -250,7 +250,8 @@
   // ---- الاستدعاء الفعلي للمحرك ------------------------------------------- //
   function audit(engine, url, opts) {
     opts = opts || {};
-    var body = { url: url };
+    var body = { url: url, challenge_text: opts.challenge_text || "" };
+    if(opts.email) body.email = opts.email;
     if (opts.flag_patterns) body.flag_patterns = opts.flag_patterns;
     return fetch(engine.replace(/\/+$/, "") + AUDIT_PATH, {
       method: "POST",
@@ -390,16 +391,30 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.3.2…';
+    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.3.3…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
-      if(version[0]<2||(version[0]===2&&(version[1]<3||(version[1]===3&&(version[2]||0)<2))))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.3.2 ثم أعد تشغيل المحرك (يدعم Crack the Gate وOld Sessions).');
-      var res=await audit(engine,url,{});
+      if(version[0]<2||(version[0]===2&&(version[1]<3||(version[1]===3&&(version[2]||0)<3))))
+        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.3.3 ثم أعد تشغيل المحرك (يدعم Crack the Gate وOld Sessions).');
+      var context = {challenge_text: document.getElementById('text').value || ''};
+      var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');
       renderResult(out,res);
+      if(res.needs_input && res.needs_input.length) {
+        var card=el('div','fws-card');
+        card.appendChild(el('p',null,'أدخل بريد التحدي لإكمال التحليل. كلمة المرور المجهولة غير مطلوبة لهذا النمط.'));
+        var emailInput=el('input','fws-input');emailInput.type='email';emailInput.placeholder='البريد المذكور في نص التحدي';
+        var confirm=el('button','fws-btn','متابعة التحليل');
+        card.appendChild(emailInput);card.appendChild(confirm);out.appendChild(card);
+        confirm.onclick=async function(){
+          if(!emailInput.value || !emailInput.checkValidity()){emailInput.reportValidity();return;}
+          confirm.disabled=true;
+          try {context.email=emailInput.value.trim();var next=await audit(engine,url,context);renderResult(out,next);}
+          catch(e){confirm.disabled=false;card.appendChild(el('p',null,e.message));}
+        };
+      }
     } catch(e) { out.textContent='تعذر تحليل التحدي: '+e.message; }
     finally {busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});}
     return false;

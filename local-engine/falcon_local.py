@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.3.2"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.3.3"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -88,7 +88,7 @@ def body_macb(path):
         return f"{stamp} macb {size:>10} {inode:>10} {mode} {name}"
     return [render(e) for e in events]
 
-def session_audit(url):
+def session_audit(url, challenge_text="", email=None):
     u=urllib.parse.urlsplit(url)
     host=(u.hostname or "")
     academy=host.endswith(".cylabacademy.net") or host.endswith(".cylabacademy.org")
@@ -96,7 +96,7 @@ def session_audit(url):
         raise ValueError("Use a cylabacademy.net/.org CTF instance URL")
     import web_session_audit
     origin=urllib.parse.urlunsplit((u.scheme,u.netloc,"/","",""))
-    result=web_session_audit.run_audit(origin,timeout=15,insecure_tls=False,demonstrate_register_requirement=False)
+    result=web_session_audit.run_audit(origin,timeout=15,insecure_tls=False,demonstrate_register_requirement=False,challenge_text=challenge_text,email=email)
     result["ok"]=True
     result["engine_version"]=VERSION
     return result
@@ -144,7 +144,7 @@ class H(BaseHTTPRequestHandler):
             if not 0<n<=8192: return reply(self,413,{"ok":False,"error":"Invalid request size"})
             try:
                 data=json.loads(self.rfile.read(n))
-                return reply(self,200,session_audit(str(data.get("url",""))))
+                return reply(self,200,session_audit(str(data.get("url","")), str(data.get("challenge_text", ""))[:65536], data.get("email")))
             except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:500]})
         if path=="/timeline/analyze":
             fls=find_tool("fls")

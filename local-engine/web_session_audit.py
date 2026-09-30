@@ -48,7 +48,6 @@ DEFAULT_FLAG_PATTERNS = [
 DEFAULT_TIMEOUT = 15
 MAX_BODY = 2 * 1024 * 1024
 TEST_PASSWORD = "falcon-nonsensitive-test"   # كلمة مرور تجريبية، لا تُسجَّل أبدًا
-DEFAULT_ACADEMY_EMAIL = "ctf-player@cylabacademy.org"
 USER_AGENT = f"CTF-Falcon-WebAudit/{__version__} (educational; authorized-CTF-only)"
 
 
@@ -512,8 +511,16 @@ def solve_crack_the_gate(client, origin, recon, ev, steps, bodies, record,
     res["steps"] = steps
     warn = res["warnings"]; expl = res["explanation_ar"]
 
-    email = opts.get("email") or next((e for e in recon["emails"] if "cylabacademy" in e.lower()),
-                                      None) or (recon["emails"][0] if recon["emails"] else DEFAULT_ACADEMY_EMAIL)
+    text_emails = extract_emails(opts.get("challenge_text") or "")
+    candidates = text_emails or recon["emails"]
+    email = opts.get("email") or (candidates[0] if len(candidates) == 1 else None)
+    if not email:
+        res["needs_input"] = [{"name": "email", "label_ar": "البريد المستخدم في التحدي", "candidates": candidates}]
+        res["explanation_ar"].append("اكتُشف مسار الدخول وترويسة المطوّر؛ يلزم تحديد بريد التحدي قبل إرسال طلب الدخول.")
+        return res
+    if not isinstance(email, str) or extract_emails(email) != [email]:
+        res["warnings"].append("البريد المدخل غير صالح.")
+        return res
 
     expl.append(f"التعليق في الصفحة مُرمّز بـ ROT13؛ بعد فكّه: «{ev['comment_decoded']}».")
     expl.append(f"دلّ التعليق على ترويسة مطوّر تتجاوز البوابة: {ev['dev_header']['name']}: {ev['dev_header']['value']}.")
@@ -740,7 +747,8 @@ def run_audit(url: str,
               demonstrate_register_requirement: bool = False,
               username: str | None = None,
               password: str | None = None,
-              email: str | None = None) -> dict:
+              email: str | None = None,
+              challenge_text: str | None = None) -> dict:
     flag_patterns = flag_patterns or DEFAULT_FLAG_PATTERNS
     if not re.match(r"^https?://", url, re.I):
         url = "http://" + url
@@ -749,7 +757,7 @@ def run_audit(url: str,
 
     opts = {
         "demonstrate_register_requirement": demonstrate_register_requirement,
-        "username": username, "password": password, "email": email,
+        "username": username, "password": password, "email": email, "challenge_text": challenge_text,
     }
 
     client = HttpClient(timeout=timeout, insecure_tls=insecure_tls)
