@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.9"\nFALCON_HOME=Path(r"C:\\Falcon")\nTEMP_ROOT=FALCON_HOME/"temp"\nTEMP_ROOT.mkdir(parents=True,exist_ok=True)
+HOST="127.0.0.1"; PORT=8765; VERSION="2.0"\nFALCON_HOME=Path(r"C:\\Falcon")\nTEMP_ROOT=FALCON_HOME/"temp"\nTEMP_ROOT.mkdir(parents=True,exist_ok=True)
 WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
@@ -182,6 +182,47 @@ class H(BaseHTTPRequestHandler):
                 inspect=list(dict.fromkeys(evidence[-40:]+tiny+old_anomalies[:80]))
                 extracted=[]
                 icat=find_tool("icat")
+                # Filesystem Explorer: enumerate regular files under high-value CTF paths
+                explorer=[]
+                for line in best_data.splitlines():
+                    low=line.lower()
+                    if not any(p in low for p in ("/home/ctf-player/","/root/","killer-chat-app","flag","secret")): continue
+                    parts=line.split("|")
+                    if len(parts)<4: continue
+                    name3=parts[1]; inode3=parts[2]; mode3=parts[3]
+                    if not mode3.startswith("r/"): continue
+                    explorer.append({"path":name3,"inode":inode3,"mode":mode3})
+                # Prefer challenge application files, then other user evidence.
+                explorer.sort(key=lambda x:(0 if "killer-chat-app" in x["path"].lower() else 1,0 if any(k in x["path"].lower() for k in ("flag","secret",".env","config","history")) else 1,x["path"]))
+                if icat:
+                    seen=set()
+                    for item in explorer[:80]:
+                        inode,name2=item["inode"],item["path"]
+                        key=(inode,name2)
+                        if key in seen: continue
+                        seen.add(key)
+                        try:
+                            icat_args=[icat]
+                            if chosen_offset: icat_args += ["-o",str(chosen_offset)]
+                            icat_args += [str(img),inode]
+                            q2=subprocess.run(icat_args,capture_output=True,timeout=20)
+                            raw=q2.stdout[:2*1024*1024]
+                            # Skip obvious binary payloads unless they contain useful printable text.
+                            txt=raw.decode("utf-8","ignore")
+                            printable=sum(ch.isprintable() or ch in "\r\n\t" for ch in txt)/max(1,len(txt))
+                            if printable < .55 and not re.search(rb"(academy\{|flag\{|secret|password|token)",raw,re.I): continue
+                            decoded=[]
+                            for tok in re.findall(r"[A-Za-z0-9+/]{12,}={0,2}",txt):
+                                try:
+                                    z=base64.b64decode(tok,validate=True).decode("utf-8","ignore").strip()
+                                    if z and sum(ch.isprintable() for ch in z)/max(1,len(z))>.9: decoded.append(z)
+                                except Exception: pass
+                            flags=re.findall(r"[A-Za-z][A-Za-z0-9_.:-]{1,30}\\{[^{}\\r\\n]{2,200}\\}",txt)
+                            extracted.append({"path":name2,"inode":inode,"returncode":q2.returncode,"text":txt[-12000:],
+                              "decoded":decoded[:30],"flags":flags[:30],"candidates":flags[:30],"source":"filesystem-explorer",
+                              "error":q2.stderr.decode("utf-8","ignore")[-500:]})
+                        except Exception as ex:
+                            extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"source":"filesystem-explorer","error":str(ex)[:500]})
                 if icat:
                     for line in inspect:
                         # Bodyfile inode can include a sequence suffix (e.g. 4943-128-1); icat accepts the inode token.
@@ -214,7 +255,7 @@ class H(BaseHTTPRequestHandler):
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
-                  "filesystem_offset":chosen_offset,"partition_attempts":attempts,"recent":recent,"evidence":evidence[:80],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
+                  "filesystem_offset":chosen_offset,"partition_attempts":attempts,"filesystem_explorer":explorer[:120],"recent":recent,"evidence":evidence[:80],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
             except subprocess.TimeoutExpired: return reply(self,504,{"ok":False,"error":"Timeline analysis timed out"})
             except Exception as e: return reply(self,500,{"ok":False,"error":"Timeline analysis failed","message":str(e)[:500]})
 
