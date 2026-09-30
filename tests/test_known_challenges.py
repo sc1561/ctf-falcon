@@ -89,6 +89,23 @@ class ScavengerHandler(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(body)
     def log_message(self, *args): pass
 
+HEAD_FLAG = "academy{head_method_verified}"
+
+class GetAheadHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = (b'<form action="/index.php" method="GET"><button>Red</button></form>'
+                b'<form action="/index.php" method="POST"><button>Blue</button></form>')
+        self.send_response(200 if self.path == "/" else 404)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def do_HEAD(self):
+        self.send_response(200 if self.path == "/index.php" else 404)
+        if self.path == "/index.php": self.send_header("flag", HEAD_FLAG)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+    def log_message(self, *args): pass
+
 
 def test_webdecode_linked_assets():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
@@ -126,6 +143,7 @@ def test_challenge_detection_is_specific():
     assert wsa.detect_named_challenge("ordinary page with no challenge name") is None
     # Longest key wins: Cookie Monster must not be confused with Cookies 2021.
     assert wsa.detect_named_challenge("Cookie Monster Secret Recipe") == ("Cookie Monster Secret Recipe", "cookie-monster")
+    assert wsa.detect_named_challenge("## GET aHEAD\nWeb ExploitationEasy") == ("GET aHEAD", "get-ahead")
 
 def test_cookies_numeric_range_is_bounded_and_stops_on_flag():
     srv = HTTPServer(("127.0.0.1", 0), CookieHandler)
@@ -155,6 +173,18 @@ def test_scavenger_hunt_reconstructs_numbered_parts_from_discovered_files():
     assert source_names == ["", "mycss.css", "robots.txt", ".htaccess", ".DS_Store"], result
     assert "/index.html" in result["discovered"]["resources_checked"], result
 
+def test_get_ahead_uses_head_on_form_action_and_reads_headers():
+    srv = HTTPServer(("127.0.0.1", 0), GetAheadHandler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True); thread.start()
+    try:
+        result = wsa.run_audit(f"http://127.0.0.1:{srv.server_port}/", challenge_text="## GET aHEAD\nWeb Exploitation")
+    finally:
+        srv.shutdown(); thread.join(timeout=2); srv.server_close()
+    assert result["recognized"] and result["analyzer"] == "get-ahead", result
+    assert result["success"] and result["flag"] == HEAD_FLAG, result
+    assert result["flag_source"].startswith("HEAD response headers"), result
+    assert any(step["method"] == "HEAD" and step["url"].endswith("/index.php") for step in result["steps"]), result
+
 if __name__ == "__main__":
     test_webdecode_linked_assets()
     test_css_rule_is_not_misreported_as_flag()
@@ -162,4 +192,5 @@ if __name__ == "__main__":
     test_challenge_detection_is_specific()
     test_cookies_numeric_range_is_bounded_and_stops_on_flag()
     test_scavenger_hunt_reconstructs_numbered_parts_from_discovered_files()
+    test_get_ahead_uses_head_on_form_action_and_reads_headers()
     print("known challenge tests passed")

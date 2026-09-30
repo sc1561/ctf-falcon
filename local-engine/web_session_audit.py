@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.12.0"
+__version__ = "2.13.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1049,6 +1049,8 @@ _STATIC_CHALLENGES = {
     "logon": ("logon", "logon"),
     "insp3ct0r": ("Insp3ct0r", "insp3ct0r"),
     "where are the robots": ("where are the robots", "robots"),
+    "get ahead": ("GET aHEAD", "get-ahead"),
+    "getahead": ("GET aHEAD", "get-ahead"),
     "no fa": ("No FA", "no-fa"),
     "hashgate": ("Hashgate", "hashgate"),
     "credential stuffing": ("Credential Stuffing", "credential-stuffing"),
@@ -1068,7 +1070,7 @@ _STATIC_GUIDANCE = {
     "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
     "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
     "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
-    "get-ahead": "يقارن صقر طرق HTTP المعلنة في الصفحة ورؤوس استجابتها؛ لن يجرّب مسارات غير مرتبطة.",
+    "get-ahead": "يقرأ صقر مسارات أزرار GET وPOST الظاهرة، ثم يرسل HEAD إلى مسار النموذج نفسه ويفحص رؤوس الاستجابة بحثًا عن العلم.",
 }
 
 
@@ -1471,13 +1473,25 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
         res["explanation_ar"].append("يتبع صقر تحويلات GET التي يرسلها الموقع بين / و/check، ويوقف تجربة القيم فور ظهور العلم أو استنفاد المجال المحدود.")
 
     if slug == "get-ahead":
-        try:
-            head = client.request("HEAD", origin, max_body=MAX_BODY)
-            record(head, ["تجربة طريقة HEAD التي يشير إليها اسم التحدي بعد جلب الصفحة الرئيسية."])
-            header_text = "\n".join(f"{k}: {v}" for k, v in head.get("headers", []))
-            resources.append(("HEAD response headers", header_text))
-        except (OSError, http.client.HTTPException, ValueError):
-            pass
+        # Use form actions visible in the page (the two buttons both target
+        # index.php in the original task). Fall back to the homepage only when
+        # no HTTP form action was disclosed; never guess extra paths.
+        head_targets = []
+        for form in recon.get("forms", []):
+            action = urljoin(origin, form.get("action") or origin)
+            a, b = urlsplit(action), urlsplit(origin)
+            if (a.scheme, a.netloc) == (b.scheme, b.netloc) and action not in head_targets:
+                head_targets.append(action)
+        if not head_targets:
+            head_targets = [origin]
+        for target in head_targets[:4]:
+            try:
+                head = client.request("HEAD", target, max_body=MAX_BODY)
+                record(head, ["إرسال HEAD إلى عنوان نموذج ظاهر في الصفحة وفحص رؤوس الاستجابة."])
+                header_text = "\n".join(f"{k}: {v}" for k, v in head.get("headers", []))
+                resources.append((f"HEAD response headers {target}", header_text))
+            except (OSError, http.client.HTTPException, ValueError):
+                continue
 
     if slug == "logon":
         # The challenge is specifically about a role cookie; only mutate it if
