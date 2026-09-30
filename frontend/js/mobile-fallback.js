@@ -11,9 +11,16 @@ function urlDecode(s){try{var x=decodeURIComponent(String(s).replace(/\+/g,' '))
 var MORSE={'.-':'A','-...':'B','-.-.':'C','-..':'D','.':'E','..-.':'F','--.':'G','....':'H','..':'I','.---':'J','-.-':'K','.-..':'L','--':'M','-.':'N','---':'O','.--.':'P','--.-':'Q','.-.':'R','...':'S','-':'T','..-':'U','...-':'V','.--':'W','-..-':'X','-.--':'Y','--..':'Z','-----':'0','.----':'1','..---':'2','...--':'3','....-':'4','.....':'5','-....':'6','--...':'7','---..':'8','----.':'9'};
 function morseDecode(s){var t=String(s).trim();if(!/^[.\-\/\s]+$/.test(t))return '';var bad=false,v=t.split(/\s*\/\s*/).map(function(w){return w.split(/\s+/).map(function(x){if(!MORSE[x]){bad=true;return '?';}return MORSE[x];}).join('');}).join(' ');return bad?'':v;}
 function quality(s){s=String(s||'');if(!s)return 0;var printable=(s.match(/[\x20-\x7e\r\n\t]/g)||[]).length/Math.max(1,s.length),score=Math.round(printable*40);if(flags(s).length)score+=200;if(/flag|ctf|moe|secret|password|key|token/i.test(s))score+=60;if(/[{}]/.test(s))score+=10;return score;}
+function isNoFaChallenge(s){s=String(s||'');return /(?:^|\n)\s*(?:#{1,6}\s*)?No\s*FA(?=\s|$|[—-])/im.test(s)&&/(?:picoCTF|Web\s+Exploitation|leaked\s+data|users\.db|app\.py)/i.test(s);}
 function candidates(t){var a=[],z;t=String(t||'').trim();if(/^[A-Za-z0-9+/=\s]+$/.test(t)&&t.replace(/\s/g,'').length>=8&&(t.replace(/\s/g,'').length%4===0)){z=b64(t);if(z)a.push(['Base64',z]);}if(/^(?:[0-9a-f]{2}\s*){4,}$/i.test(t)){z=hexDecode(t);if(z)a.push(['Hex',z]);}if(/^[01\s]{8,}$/.test(t)){z=binaryDecode(t);if(z)a.push(['Binary',z]);}z=urlDecode(t);if(z)a.push(['URL Decode',z]);if(/^[.\-\/\s]+$/.test(t)&&t.length>5){z=morseDecode(t);if(z)a.push(['Morse',z]);}if(/[A-Za-z]{4}/.test(t))a.push(['ROT13',rot13(t)]);if((t.match(/[A-Za-z]/g)||[]).length>=6){for(var n=1;n<26;n++){z=rotN(t,n);if(/flag|ctf|moe|secret|key/i.test(z))a.push(['Caesar '+n,z]);}}return a;}
 function analyzeText(raw,deep,source){
  var result=byId('result'),root=source||'Original',queue=[{v:raw,p:root,d:0}],seen={},rows=[],found=[],limit=deep?6:3,count=0,best={score:quality(raw),path:root,value:raw};
+ if(isNoFaChallenge(raw)){
+  var summary='<div class="studentSummary"><h2>🧭 نتيجة التحليل</h2><div class="studentCard"><b>1️⃣ ما نوع التحدي؟</b><p>تحدي ويب: <strong>No FA — picoCTF 2026</strong>.</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>الوصف يشير إلى بيانات مسرّبة وملفات مطلوبة للتحليل. هذا نص وصف التحدي، وليس نصًا مشفّرًا؛ لذلك لم يُطبّق ROT13 عليه.</p></div><div class="studentCard next"><b>3️⃣ أين نتابع؟</b><p>نزّل الملفين <code>app.py</code> و<code>users.db</code> من روابط التحدي واحفظهما في <code>C:\\Falcon\\analysis</code>، ثم حلّل ملفات التحدي محليًا.</p></div></div>';
+  result.innerHTML=summary;result.className='result';
+  if(window.FalconWebSessions&&window.FalconWebSessions.renderArtifactGuidance){var card=window.FalconWebSessions.renderArtifactGuidance(raw);if(card)result.prepend(card);}
+  result.scrollIntoView({behavior:'smooth',block:'start'});return;
+ }
  seen[raw]=1;var direct=flags(raw);for(var df=0;df<direct.length;df++)found.push({flag:direct[df],path:root});
  while(queue.length&&count<(deep?240:90)){
   var x=queue.shift();if(x.d>=limit)continue;var cs=candidates(x.v);
