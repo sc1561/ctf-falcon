@@ -4,7 +4,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.4"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.5"
+WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\steghide\steghide.exe",
@@ -75,10 +76,21 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         path=self.path.split("?",1)[0]
         if path=="/health": return reply(self,200,status())
-        if path=="/":
+        if path=="/engine":
             b=dashboard().encode("utf-8"); self.send_response(200)
             self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Content-Length",str(len(b)))
             self.end_headers(); self.wfile.write(b); return
+        # Serve the Falcon frontend from the cloned/downloaded repository so browser and engine share one origin.
+        rel="index.html" if path=="/" else path.lstrip("/")
+        target=(WEB_ROOT/rel).resolve()
+        try: target.relative_to(WEB_ROOT.resolve())
+        except ValueError: return reply(self,403,{"ok":False})
+        if target.is_file():
+            mime={".html":"text/html; charset=utf-8",".js":"text/javascript; charset=utf-8",".css":"text/css; charset=utf-8",
+                  ".json":"application/json; charset=utf-8",".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",
+                  ".svg":"image/svg+xml",".ico":"image/x-icon"}.get(target.suffix.lower(),"application/octet-stream")
+            b=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mime)
+            self.send_header("Cache-Control","no-store"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b); return
         return reply(self,404,{"ok":False})
 
     def do_POST(self):
