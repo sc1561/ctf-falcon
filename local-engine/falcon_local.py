@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import base64, json, re, shutil, subprocess, tempfile, gzip
 from datetime import datetime
+import urllib.request, urllib.parse, http.cookiejar
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.0.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.1.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -84,6 +86,48 @@ def body_macb(path):
         return f"{stamp} macb {size:>10} {inode:>10} {mode} {name}"
     return [render(e) for e in events]
 
+def session_audit(url):
+    u=urllib.parse.urlsplit(url)
+    if u.scheme not in ("http","https") or not (u.hostname or "").endswith(".cylabacademy.net") or u.username or u.password:
+        raise ValueError("Use a cylabacademy.net CTF instance URL")
+    class ScopedRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            target=urllib.parse.urlsplit(newurl)
+            if target.hostname!=u.hostname or target.port!=u.port or target.scheme not in ("http","https"):
+                raise ValueError("Redirect outside challenge instance blocked")
+            return super().redirect_request(req,fp,code,msg,headers,newurl)
+    jar=http.cookiejar.CookieJar()
+    opener=urllib.request.build_opener(ScopedRedirect(),urllib.request.HTTPCookieProcessor(jar))
+    pages=[];cookies=[];flags=[]
+    for step in range(2):
+        with opener.open(urllib.request.Request(url,headers={"User-Agent":"Falcon-CTF-Session-Audit/2.1"}),timeout=20) as r:
+            raw=r.read(2*1024*1024+1)
+            if len(raw)>2*1024*1024: raise ValueError("Response exceeds 2 MB")
+            text=raw.decode("utf-8","replace")
+            pages.append({"step":step+1,"status":r.status,"url":r.geturl()})
+            flags+=re.findall(r"(?:academy|picoCTF|flag)\{[^{}\r\n]{2,200}\}",text)
+            for header in r.headers.get_all("Set-Cookie",[]):
+                c=SimpleCookie();c.load(header)
+                for name,m in c.items():
+                    findings=[]
+                    if not m["httponly"]: findings.append("Missing HttpOnly")
+                    if not m["secure"]: findings.append("Missing Secure")
+                    if not m["samesite"]: findings.append("Missing SameSite")
+                    if m["expires"] or m["max-age"]: findings.append("Persistent cookie; server-side expiry is not verified")
+                    decoded=[]
+                    for token in urllib.parse.unquote(m.value).split('.'):
+                        try:
+                            z=base64.urlsafe_b64decode(token+'='*((-len(token))%4)).decode('utf-8')
+                            if z and all(ch.isprintable() or ch in '\r\n\t' for ch in z): decoded.append(z)
+                        except Exception: pass
+                    for z in decoded: flags+=re.findall(r"(?:academy|picoCTF|flag)\{[^{}\r\n]{2,200}\}",z)
+                    cookies.append({"name":name,"expires":m["expires"],"max_age":m["max-age"],"findings":findings,"decoded":decoded})
+    unique=[];seen=set()
+    for c in cookies:
+        key=json.dumps(c,sort_keys=True)
+        if key not in seen:seen.add(key);unique.append(c)
+    return {"ok":True,"pages":pages,"cookies":unique,"flags":list(dict.fromkeys(flags)),"session_reused":bool(list(jar)),"limitation":"Two anonymous GET requests only. Persistent cookies do not prove infinite sessions. Authenticated logout and idle-expiry checks require challenge session evidence."}
+
 def reply(h,code,obj):
     b=json.dumps(obj,ensure_ascii=False).encode()
     h.send_response(code); h.send_header("Content-Type","application/json; charset=utf-8")
@@ -122,6 +166,13 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path=self.path.split("?",1)[0]
+        if path=="/web/session-audit":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=8192: return reply(self,413,{"ok":False,"error":"Invalid request size"})
+            try:
+                data=json.loads(self.rfile.read(n))
+                return reply(self,200,session_audit(str(data.get("url",""))))
+            except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:500]})
         if path=="/timeline/analyze":
             fls=find_tool("fls")
             if not fls: return reply(self,503,{"ok":False,"error":"fls.exe is not installed","need":["fls"]})
