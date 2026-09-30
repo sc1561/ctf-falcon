@@ -4,7 +4,10 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.0"\nFALCON_HOME=Path(r"C:\\Falcon")\nTEMP_ROOT=FALCON_HOME/"temp"\nTEMP_ROOT.mkdir(parents=True,exist_ok=True)
+HOST="127.0.0.1"; PORT=8765; VERSION="2.0.1"
+FALCON_HOME=Path(r"C:\\Falcon")
+TEMP_ROOT=FALCON_HOME/"temp"
+TEMP_ROOT.mkdir(parents=True,exist_ok=True)
 WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
