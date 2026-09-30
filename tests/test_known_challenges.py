@@ -159,13 +159,13 @@ class LogonHandler(BaseHTTPRequestHandler):
 class LogonJoeExceptionHandler(LogonHandler):
     def do_GET(self):
         cookie = self.headers.get("Cookie", "")
-        if self.path == "/" and "admin=True" in cookie and "user=guest" in cookie:
+        if self.path == "/flag" and "admin=True" in cookie and "user=guest" in cookie:
             body = ("<p>" + LOGON_FLAG + "</p>").encode()
         elif self.path == "/":
             body = b'<form action="/login" method="POST"><input name="username"><input name="password"></form><p>Joe password is checked</p>'
         else:
             body = b"not found"
-        self.send_response(200 if self.path == "/" else 404)
+        self.send_response(200 if self.path in {"/", "/flag"} else 404)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers(); self.wfile.write(body)
@@ -173,10 +173,11 @@ class LogonJoeExceptionHandler(LogonHandler):
         length = int(self.headers.get("Content-Length", "0"))
         values = parse_qs(self.rfile.read(length).decode())
         username = values.get("username", [""])[0]
-        self.send_response(200)
+        self.send_response(200 if username.lower() == "joe" else 302)
         if username.lower() != "joe":
             self.send_header("Set-Cookie", "admin=False; Path=/")
             self.send_header("Set-Cookie", "user=guest; Path=/")
+            self.send_header("Location", "/flag")
         body = b"Joe's password is checked" if username.lower() == "joe" else b"Logged in"
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -295,6 +296,7 @@ def test_logon_follows_joe_password_exception_hint():
         srv.shutdown(); thread.join(timeout=2); srv.server_close()
     assert result["success"] and result["flag"] == LOGON_FLAG, result
     assert [step["method"] for step in result["steps"]] == ["GET", "POST", "GET", "POST", "GET"], result
+    assert result["steps"][-1]["url"].endswith("/flag"), result
     assert result["steps"][3]["request_cookies"].get("admin") == "…", result
 
 if __name__ == "__main__":

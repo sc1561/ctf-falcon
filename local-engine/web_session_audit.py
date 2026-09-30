@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.16.0"
+__version__ = "2.17.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1070,7 +1070,7 @@ _STATIC_GUIDANCE = {
     "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
     "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
     "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
-    "logon": "يجرب صقر Joe أولًا، ثم يتبع التلميح إن كان التطبيق يتحقق من كلمة مروره وحده: يسجل باسم مستخدم تجريبي آخر، يضبط كوكي admin=True، ويعيد تحميل الصفحة.",
+    "logon": "يجرب صقر Joe أولًا، ثم يتبع التلميح إن كان التطبيق يتحقق من كلمة مروره وحده. يضبط admin=True قبل اتباع مسار التحويل الذي يكشفه POST، مثل /flag.",
     "get-ahead": "يقرأ صقر مسارات أزرار GET وPOST الظاهرة، ثم يرسل HEAD إلى مسار النموذج نفسه ويفحص رؤوس الاستجابة بحثًا عن العلم.",
     "dont-use-client-side": "يحلل صقر شروط substring الموجودة في JavaScript المضمّن، ويرتب مقاطع كلمة المرور حسب مواقعها لإظهار العلم وشرح أن التحقق يجري في المتصفح.",
 }
@@ -1584,20 +1584,21 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
                 posted = client.request("POST", action, urlencode(values))
                 record(posted, [f"إرسال نموذج الدخول باسم {label} وفق الحقول التي ظهرت في الصفحة."])
                 resources.append((f"logon login response ({label})", posted["body"]))
+                redirect_target = None
                 if posted.get("location"):
                     nxt = urljoin(action, posted["location"])
                     old, new = urlsplit(action), urlsplit(nxt)
                     if (old.scheme, old.netloc) == (new.scheme, new.netloc):
-                        followed = _get_with_observed_redirects(
-                            client, nxt, record, "اتباع تحويل الدخول الذي أعلنه الخادم.", max_redirects=2)
-                        resources.append((f"logon landing page ({label})", followed["body"]))
+                        redirect_target = nxt
                 role_cookie = next((n for n in client.cookies if n.lower() in {"admin", "role", "is_admin"}), None)
                 admin_cookie = role_cookie or "admin"
                 client.cookies[admin_cookie] = "True"
+                landing_url = redirect_target or origin
                 role = _get_with_observed_redirects(
-                    client, origin, record,
-                    f"تعيين كوكي «{admin_cookie}=True» ثم إعادة تحميل الصفحة بعد دخول {label}.",
+                    client, landing_url, record,
+                    f"تعيين كوكي «{admin_cookie}=True» ثم فتح المسار الذي كشفه POST بعد دخول {label}.",
                     max_redirects=2)
+                resources.append((f"logon landing page ({label})", role["body"]))
                 resources.append((f"logon admin-cookie response ({label})", role["body"]))
                 return extract_flag([(label, role["body"])], flag_patterns)[0] is not None
 
