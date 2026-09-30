@@ -1,5 +1,5 @@
 /* ==========================================================================
- * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v148
+ * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v163
  * --------------------------------------------------------------------------
  * وحدة واجهة مستقلة تستدعي المحرك المحلي على /web/session-audit وتعرض:
  *   - جدولًا زمنيًا لكل خطوة (الطريقة/المسار/الحالة/التحويل)
@@ -166,6 +166,60 @@
     return wrap;
   }
 
+  // Read downloadable challenge artifacts from the pasted challenge text.
+  // Keep the URL's filename as supplied; students use it when saving locally.
+  function challengeArtifacts(text) {
+    text = String(text || "");
+    var entries = [], seen = Object.create(null);
+    var md = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, match;
+    var links = [];
+    while ((match = md.exec(text))) links.push({label: match[1], url: match[2]});
+    var bare = /https?:\/\/[^\s<>\]"')]+/gi;
+    while ((match = bare.exec(text))) links.push({label: "", url: match[0]});
+    links.forEach(function (item) {
+      try {
+        var url = new URL(item.url.replace(/[.,;!?]+$/, ""));
+        if (url.protocol !== "http:" && url.protocol !== "https:") return;
+        var path = url.pathname || "";
+        var filename = "";
+        try { filename = decodeURIComponent(path.split("/").filter(Boolean).pop() || ""); }
+        catch (_) { filename = path.split("/").filter(Boolean).pop() || ""; }
+        var label = item.label.trim();
+        var labelLooksLikeFile = /[\w-]+\.[a-z0-9]{1,8}$/i.test(label);
+        var fileLike = url.hostname.toLowerCase().startsWith("challenge-files.") ||
+          /\.(?:db|sqlite3?|py|zip|7z|rar|gz|tgz|tar|pcapng?|cap|img|raw|dump|bin|txt|json|log|pdf|docx?|xlsx?)$/i.test(path) ||
+          labelLooksLikeFile || /\b(?:download|attachment|file)\b/i.test(label);
+        if (!fileLike) return;
+        if (!filename || /^(?:download|file|attachment)$/i.test(filename)) filename = labelLooksLikeFile ? label : "ملف مرفق";
+        var key = url.href;
+        if (seen[key]) return;
+        seen[key] = true;
+        entries.push({name: filename, url: url.href});
+      } catch (_) {}
+    });
+    return entries;
+  }
+
+  function renderArtifactGuidance(text) {
+    var files = challengeArtifacts(text);
+    if (!files.length) return null;
+    var card = el("div", "fws-card fws-artifacts");
+    card.appendChild(el("div", "fws-h", "📥 ملفات التحدي المطلوبة"));
+    card.appendChild(el("p", null, "نزّل الملفات من الروابط أدناه، ثم احفظها داخل المجلد C:\\Falcon\\analysis مع إبقاء اسم كل ملف وامتداده بالإنجليزية كما هو. استخدم الملف من هذا المجلد عند تشغيل التحليل المحلي أو ارفعه في صقر إذا طلب ذلك."));
+    var list = el("ul", "fws-ul");
+    files.forEach(function (file) {
+      var item = el("li");
+      var link = el("a", null, file.name);
+      link.href = file.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      item.appendChild(link);
+      list.appendChild(item);
+    });
+    card.appendChild(list);
+    return card;
+  }
+
   // ---- عرض النتيجة كاملةً ------------------------------------------------ //
   function renderResult(container, res) {
     injectCSS();
@@ -178,6 +232,9 @@
       typ.appendChild(el("div", null, res.challenge + (res.analyzer && res.analyzer !== "none" ? "  (المحلل: " + res.analyzer + ")" : "")));
       container.appendChild(typ);
     }
+
+    var artifactGuidance = renderArtifactGuidance(document.getElementById("text") && document.getElementById("text").value);
+    if (artifactGuidance) container.appendChild(artifactGuidance);
 
     container.appendChild(renderFlag(res));
 
@@ -385,7 +442,9 @@
 
   global.FalconWebSessions = {
     mount: mount, renderResult: renderResult, audit: audit,
-    DEFAULT_ENGINE: DEFAULT_ENGINE, SAMPLE: SAMPLE
+    DEFAULT_ENGINE: DEFAULT_ENGINE, SAMPLE: SAMPLE,
+    challengeArtifacts: challengeArtifacts,
+    renderArtifactGuidance: renderArtifactGuidance
   };
 
   var previous = global.FalconRogueTowerRun || global.FalconSmartRun;
