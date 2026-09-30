@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.5"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.6"
 WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
@@ -36,6 +36,30 @@ def dashboard():
 <h1>🦅 Falcon Local Engine v%s</h1><div class=c>🟢 Python جاهز<br>%s Sleuth Kit / fls: %s<br>🟢 Timeline: Falcon Python (لا يحتاج mactime.exe)<br>%s Steghide: %s</div>
 <div class=c><b>الحالة:</b> %s</div>""" % (VERSION,"🟢" if st["sleuthkit"] else "🔴",st["fls_path"] or "غير موجود",
 "🟢" if st["steghide"] else "🔴",st["steghide_path"] or "غير مثبت","جاهز لتحليل Timeline" if st["sleuthkit"] else "يحتاج fls.exe")
+
+def partition_offsets(img):
+    """Return candidate filesystem start sectors without requiring mmls."""
+    out=[0]
+    mmls=find_tool("mmls")
+    if mmls:
+        try:
+            q=subprocess.run([mmls,str(img)],capture_output=True,text=True,timeout=30)
+            for line in q.stdout.splitlines():
+                m=re.match(r"\s*\d+:\s+\d+:\s+(\d+)\s+\d+\s+\d+\s+(.+)",line)
+                if m and not any(x in m.group(2).lower() for x in ("unallocated","table","metadata")):
+                    off=int(m.group(1))
+                    if off not in out: out.append(off)
+        except Exception: pass
+    try:
+        with img.open("rb") as fh:
+            mbr=fh.read(512)
+        if len(mbr)==512 and mbr[510:512]==b"\x55\xaa":
+            for i in range(4):
+                e=mbr[446+i*16:462+i*16]
+                ptype=e[4]; start=int.from_bytes(e[8:12],"little"); size=int.from_bytes(e[12:16],"little")
+                if ptype and start and size and start not in out: out.append(start)
+    except Exception: pass
+    return out
 
 def body_macb(path):
     events=[]
@@ -111,9 +135,17 @@ class H(BaseHTTPRequestHandler):
             try:
                 with gzip.open(gz,"rb") as r, img.open("wb") as w: shutil.copyfileobj(r,w,1024*1024)
                 body=work/"bodyfile.txt"
-                with body.open("w",encoding="utf-8",errors="ignore") as w:
-                    q=subprocess.run([fls,"-r","-m","/",str(img)],stdout=w,stderr=subprocess.PIPE,text=True,timeout=240)
-                if q.returncode!=0: return reply(self,422,{"ok":False,"error":"fls failed","message":q.stderr[-1500:]})
+                chosen_offset=None; attempts=[]
+                for off in partition_offsets(img):
+                    args=[fls,"-r","-m","/"]
+                    if off: args += ["-o",str(off)]
+                    args.append(str(img))
+                    with body.open("w",encoding="utf-8",errors="ignore") as w:
+                        q=subprocess.run(args,stdout=w,stderr=subprocess.PIPE,text=True,timeout=240)
+                    attempts.append({"offset":off,"returncode":q.returncode,"error":q.stderr[-500:]})
+                    if q.returncode==0 and body.stat().st_size>0:
+                        chosen_offset=off; break
+                if chosen_offset is None: return reply(self,422,{"ok":False,"error":"fls failed on filesystem and detected partitions","attempts":attempts})
                 macb=body_macb(body); recent=macb[-120:]
                 years=[int(x[:4]) for x in macb if len(x)>=5 and x[:4].isdigit() and x[4]=="-"]
                 normal_year=max(years) if years else datetime.now().year
@@ -137,7 +169,10 @@ class H(BaseHTTPRequestHandler):
                         if not re.search(r"\s+d/d",line) and not name2.endswith("/"):
                             pass
                         try:
-                            q2=subprocess.run([icat,str(img),inode],capture_output=True,timeout=20)
+                            icat_args=[icat]
+                            if chosen_offset: icat_args += ["-o",str(chosen_offset)]
+                            icat_args += [str(img),inode]
+                            q2=subprocess.run(icat_args,capture_output=True,timeout=20)
                             raw=q2.stdout[:1024*1024]
                             txt=raw.decode("utf-8","ignore")
                             decoded=[]
@@ -156,7 +191,7 @@ class H(BaseHTTPRequestHandler):
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
-                  "recent":recent,"evidence":evidence[-40:],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
+                  "filesystem_offset":chosen_offset,"recent":recent,"evidence":evidence[-40:],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
             except subprocess.TimeoutExpired: return reply(self,504,{"ok":False,"error":"Timeline analysis timed out"})
             except Exception as e: return reply(self,500,{"ok":False,"error":"Timeline analysis failed","message":str(e)[:500]})
 
