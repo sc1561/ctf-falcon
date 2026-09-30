@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.15.0"
+__version__ = "2.16.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1070,7 +1070,7 @@ _STATIC_GUIDANCE = {
     "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
     "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
     "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
-    "logon": "يسجل صقر الدخول من النموذج الظاهر، ثم يغيّر كوكي admin إلى True ويعيد تحميل الصفحة لقراءة العلم. يوضح ذلك خطورة الاعتماد على كوكي قابلة للتعديل من العميل.",
+    "logon": "يجرب صقر Joe أولًا، ثم يتبع التلميح إن كان التطبيق يتحقق من كلمة مروره وحده: يسجل باسم مستخدم تجريبي آخر، يضبط كوكي admin=True، ويعيد تحميل الصفحة.",
     "get-ahead": "يقرأ صقر مسارات أزرار GET وPOST الظاهرة، ثم يرسل HEAD إلى مسار النموذج نفسه ويفحص رؤوس الاستجابة بحثًا عن العلم.",
     "dont-use-client-side": "يحلل صقر شروط substring الموجودة في JavaScript المضمّن، ويرتب مقاطع كلمة المرور حسب مواقعها لإظهار العلم وشرح أن التحقق يجري في المتصفح.",
 }
@@ -1405,7 +1405,8 @@ def _reconstruct_client_side_flag(sources: list[tuple[str, str]], flag_patterns:
 
 
 def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, record,
-                            flag_patterns) -> dict:
+                            flag_patterns, opts=None) -> dict:
+    opts = opts or {}
     res = _base_result(origin, title, slug, recognized=True)
     res["steps"] = steps
     res["discovered"] = {"resources_checked": [], "challenge_slug": slug}
@@ -1565,40 +1566,48 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
                 continue
 
     if slug == "logon":
-        # The challenge is specifically about a role cookie; only mutate it if
-        # the page or its response gave evidence that such a cookie is used.
+        # This challenge's hint distinguishes Joe from other users: try Joe,
+        # then one generic non-Joe account only when the pasted hint says his
+        # password is the exception. Each attempt is tied to the discovered
+        # login form and followed by the same-origin page after setting admin.
         login_form = next((f for f in recon.get("forms", [])
                            if f.get("method") == "POST" and
                            any(x.lower() in {"username", "user"} for x in f.get("fields", []))), None)
         if login_form:
-            values = {}
-            for field in login_form["fields"]:
-                low = field.lower()
-                values[field] = "Joe" if low in {"username", "user"} else TEST_PASSWORD
             action = urljoin(origin, login_form.get("action") or "/")
+            def attempt_logon(username_value: str, label: str) -> bool:
+                values = {}
+                for field in login_form["fields"]:
+                    low = field.lower()
+                    values[field] = (username_value if low in {"username", "user"} else
+                                     TEST_PASSWORD if low in {"password", "pass"} else "")
+                posted = client.request("POST", action, urlencode(values))
+                record(posted, [f"إرسال نموذج الدخول باسم {label} وفق الحقول التي ظهرت في الصفحة."])
+                resources.append((f"logon login response ({label})", posted["body"]))
+                if posted.get("location"):
+                    nxt = urljoin(action, posted["location"])
+                    old, new = urlsplit(action), urlsplit(nxt)
+                    if (old.scheme, old.netloc) == (new.scheme, new.netloc):
+                        followed = _get_with_observed_redirects(
+                            client, nxt, record, "اتباع تحويل الدخول الذي أعلنه الخادم.", max_redirects=2)
+                        resources.append((f"logon landing page ({label})", followed["body"]))
+                role_cookie = next((n for n in client.cookies if n.lower() in {"admin", "role", "is_admin"}), None)
+                admin_cookie = role_cookie or "admin"
+                client.cookies[admin_cookie] = "True"
+                role = _get_with_observed_redirects(
+                    client, origin, record,
+                    f"تعيين كوكي «{admin_cookie}=True» ثم إعادة تحميل الصفحة بعد دخول {label}.",
+                    max_redirects=2)
+                resources.append((f"logon admin-cookie response ({label})", role["body"]))
+                return extract_flag([(label, role["body"])], flag_patterns)[0] is not None
+
             try:
-                login_resp = client.request("POST", action, urlencode(values))
-                record(login_resp, ["تسجيل دخول Joe ببيانات اختبارية وفق النموذج الظاهر في تحدي logon."])
-                resources.append(("logon login response", login_resp["body"]))
-                if login_resp.get("location"):
-                    nxt = urljoin(action, login_resp["location"])
-                    if urlsplit(nxt).netloc == urlsplit(origin).netloc:
-                        landing = client.request("GET", nxt)
-                        record(landing, ["اتباع التحويل الذي أعاده نموذج الدخول ضمن أصل التحدي."])
-                        resources.append(("logon landing page", landing["body"]))
+                found = attempt_logon("Joe", "Joe")
+                hint = opts.get("challenge_text") or ""
+                if not found and re.search(r"except.{0,50}joe|joe.{0,50}password", hint, re.I | re.S):
+                    attempt_logon("guest", "مستخدم تجريبي غير Joe وفق التلميح")
             except (OSError, http.client.HTTPException, ValueError):
                 pass
-        # The point of this named challenge is a client-controlled admin
-        # cookie. The server may set admin=False on the POST, but some clones
-        # omit that header; in either case, change the challenge's documented
-        # cookie and reload the disclosed homepage once.
-        if login_form:
-            role_cookie = next((n for n in client.cookies if n.lower() in {"admin", "role", "is_admin"}), None)
-            admin_cookie = role_cookie or "admin"
-            client.cookies[admin_cookie] = "True"
-            role = client.request("GET", origin)
-            record(role, [f"تعيين كوكي «{admin_cookie}=True» في تحدي logon المحدد، ثم إعادة تحميل الصفحة الرئيسية."])
-            resources.append(("logon admin-cookie response", role["body"]))
 
     # Cookie-based teaching challenges: decode only cookies received from this site.
     decoded_cookies = []
@@ -1813,7 +1822,7 @@ def run_audit(url: str,
         if named[1] == "local-authority":
             return solve_local_authority(client, origin, recon, steps, bodies, record, flag_patterns)
         return _known_challenge_result(client, origin, recon, named[0], named[1],
-                                       steps, bodies, record, flag_patterns)
+                                       steps, bodies, record, flag_patterns, opts)
 
     return unrecognized_result(origin, recon, steps)
 

@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -155,6 +156,32 @@ class LogonHandler(BaseHTTPRequestHandler):
         self.end_headers()
     def log_message(self, *args): pass
 
+class LogonJoeExceptionHandler(LogonHandler):
+    def do_GET(self):
+        cookie = self.headers.get("Cookie", "")
+        if self.path == "/" and "admin=True" in cookie and "user=guest" in cookie:
+            body = ("<p>" + LOGON_FLAG + "</p>").encode()
+        elif self.path == "/":
+            body = b'<form action="/login" method="POST"><input name="username"><input name="password"></form><p>Joe password is checked</p>'
+        else:
+            body = b"not found"
+        self.send_response(200 if self.path == "/" else 404)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        values = parse_qs(self.rfile.read(length).decode())
+        username = values.get("username", [""])[0]
+        self.send_response(200)
+        if username.lower() != "joe":
+            self.send_header("Set-Cookie", "admin=False; Path=/")
+            self.send_header("Set-Cookie", "user=guest; Path=/")
+        body = b"Joe's password is checked" if username.lower() == "joe" else b"Logged in"
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+
 
 def test_webdecode_linked_assets():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
@@ -258,6 +285,18 @@ def test_logon_changes_admin_cookie_and_reloads_homepage():
     assert [step["method"] for step in result["steps"]] == ["GET", "POST", "GET"], result
     assert result["steps"][2]["request_cookies"].get("admin") == "…", result
 
+def test_logon_follows_joe_password_exception_hint():
+    srv = HTTPServer(("127.0.0.1", 0), LogonJoeExceptionHandler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True); thread.start()
+    try:
+        challenge = "## logon\nWeb ExploitationEasy\nHint: Hmm it doesn't seem to check anyone's password, except for Joe's?"
+        result = wsa.run_audit(f"http://127.0.0.1:{srv.server_port}/", challenge_text=challenge)
+    finally:
+        srv.shutdown(); thread.join(timeout=2); srv.server_close()
+    assert result["success"] and result["flag"] == LOGON_FLAG, result
+    assert [step["method"] for step in result["steps"]] == ["GET", "POST", "GET", "POST", "GET"], result
+    assert result["steps"][3]["request_cookies"].get("admin") == "…", result
+
 if __name__ == "__main__":
     test_webdecode_linked_assets()
     test_css_rule_is_not_misreported_as_flag()
@@ -268,4 +307,5 @@ if __name__ == "__main__":
     test_get_ahead_uses_head_on_form_action_and_reads_headers()
     test_dont_use_client_side_reassembles_substring_checks()
     test_logon_changes_admin_cookie_and_reloads_homepage()
+    test_logon_follows_joe_password_exception_hint()
     print("known challenge tests passed")
