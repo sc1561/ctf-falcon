@@ -48,6 +48,10 @@ assert.deepEqual(
     {name: "users.db", url: null}
   ]
 );
+const pagesSource = fs.readFileSync("frontend/js/pages.js", "utf8");
+const detectTypeSource = pagesSource.match(/function detectType\(name,raw,ext\)\{[^\n]+\}/)[0];
+const detectType = vm.runInNewContext("(" + detectTypeSource + ")");
+assert.equal(detectType("challenge", pastedNoFa, ""), "NO FA");
 const guidance = window.FalconWebSessions.renderArtifactGuidance(pastedNoFa);
 assert.match(guidance.textContent, /C:\\Falcon\\analysis/);
 assert.match(guidance.textContent, /app\.py/);
