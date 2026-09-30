@@ -149,6 +149,9 @@ if __name__ == "__main__":
         check("401 flag is not success", not result["success"] and result["flag"] is None)
     finally:
         srv.shutdown()
+    check("spaced fetch with long options", w.extract_login_fetch("fetch ( '/login', {method:'POST',headers:{'Content-Type':'application/json'}, " + " " * 600 + "body:JSON.stringify({email,password})})")["fields"] == ["email", "password"])
+    check("JSON variable fields", w.extract_login_fetch("<script>const data={email,password};fetch('/login',{method:'POST',body:JSON.stringify(data)})</script>")["fields"] == ["email", "password"])
+    check("unrelated fetch isolation", w.extract_login_fetch("fetch('/stats',{method:'GET'});fetch('/login',{method:'POST',body:JSON.stringify({email,password})})")["path"] == "/login")
     test_happy_path()
     test_reject_401()
     test_no_flag()

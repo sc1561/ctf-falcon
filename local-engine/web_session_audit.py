@@ -242,7 +242,7 @@ def rot13(s: str) -> str:
 
 _COMMENT_RE = re.compile(r"<!--(.*?)-->", re.S)
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-_FETCH_RE = re.compile(r"""fetch\(\s*['"]([^'"]+)['"]""", re.I)
+_FETCH_RE = re.compile(r"""fetch\s*\(\s*['"]([^'"]+)['"]""", re.I)
 _INPUT_NAME_RE = re.compile(r'<input[^>]*\bname\s*=\s*["\']([^"\']+)["\']', re.I)
 _FORM_RE = re.compile(r"<form\b([^>]*)>(.*?)</form>", re.I | re.S)
 _ACTION_RE = re.compile(r'\baction\s*=\s*["\']([^"\']*)["\']', re.I)
@@ -289,8 +289,40 @@ def extract_login_fetch(html: str) -> dict | None:
     """
     for m in _FETCH_RE.finditer(html):
         path = m.group(1)
-        window = html[m.end(): m.end() + 500]
+        # Bound options to this fetch call, respecting strings and nested objects.
+        start = html.find("(", m.start())
+        depth, quote, escaped, end = 0, None, False, len(html)
+        for i in range(start, len(html)):
+            ch = html[i]
+            if quote:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote:
+                    quote = None
+                continue
+            if ch in ("'", '"', "`"):
+                quote = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        window = html[m.end():end]
         low = window.lower()
+        field_text = low
+        # JSON.stringify(data) may refer to fields declared before fetch.
+        variable = re.search(r"json\.stringify\(\s*([a-z_$][\w$]*)\s*\)", low)
+        if variable:
+            script_start = html.lower().rfind("<script", 0, m.start())
+            prefix = html[script_start if script_start >= 0 else m.start():m.start()]
+            declaration = re.search(r"\b(?:const|let|var)\s+" + re.escape(variable.group(1)) + r"\s*=\s*\{([^{}]*)\}", prefix, re.I | re.S)
+            if declaration:
+                field_text += " {" + declaration.group(1).lower() + "}"
+
         is_json = "application/json" in low or "json.stringify" in low
         if re.search(r"method\s*:\s*['\"]post['\"]", low):
             method = "POST"
@@ -300,7 +332,7 @@ def extract_login_fetch(html: str) -> dict | None:
             method = "GET"
         fields = []
         for f in ("email", "password", "username", "user", "pass"):
-            if re.search(r"['\"]?" + f + r"['\"]?\s*:", low) or re.search(r"(?:\{|,)\s*" + f + r"\s*(?=,|\})", low):
+            if re.search(r"['\"]?" + f + r"['\"]?\s*:", field_text) or re.search(r"(?:\{|,)\s*" + f + r"\s*(?=,|\})", field_text):
                 fields.append(f)
         reads = [k for k in ("success", "flag", "token", "error")
                  if re.search(r"\.\s*" + k + r"\b", low) or ("'" + k + "'" in low) or ('"' + k + '"' in low)]
