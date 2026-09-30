@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1500,9 +1500,23 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
 
     # Search direct content first, then common encoded source literals.
     flag, source = extract_flag(resources + bodies, flag_patterns)
-    if not flag and slug in ("insp3ct0r", "includes", "scavenger-hunt", "dont-use-client-side"):
-        joined = "".join(body for _, body in resources)
-        flag, source = extract_flag([(f"{slug} ordered page/resources", joined)], flag_patterns)
+    if not flag and slug in ("insp3ct0r", "includes", "scavenger-hunt"):
+        # Multi-part picoCTF flags are deliberately placed in source comments.
+        # Join only flag-shaped comment payloads, never whole CSS/JS documents
+        # (which can turn a selector or function body into a false flag).
+        comment_parts = []
+        for label, body in resources:
+            comments = [m.group(1) for m in _COMMENT_RE.finditer(body)]
+            comments.extend(m.group(1) for m in re.finditer(r"/\*(.*?)\*/", body, re.S))
+            comments.extend(m.group(1) for m in re.finditer(r"//([^\r\n]*)", body))
+            for comment in comments:
+                part = html_lib.unescape(comment).strip()
+                if len(part) >= 8 and re.fullmatch(r"[A-Za-z0-9_{}]+", part) and ("_" in part or "{" in part):
+                    comment_parts.append((label, part))
+        joined = "".join(part for _, part in comment_parts)
+        flag, source = extract_flag([(f"{slug} comment fragments", joined)], flag_patterns)
+        if flag:
+            res["discovered"]["flag_fragment_sources"] = [label for label, _ in comment_parts]
     if not flag and slug == "webdecode":
         import base64
         encoded_candidates = re.findall(r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9_+/=-]{20,4096})(?![A-Za-z0-9+/=_-])",

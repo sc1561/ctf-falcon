@@ -10,7 +10,7 @@ class LocalConnection(real):
  def __init__(self,host,port=None,**kw):super().__init__('127.0.0.1' if host=='mock.cylabacademy.net' else host,target_port if host=='mock.cylabacademy.net' else port,**kw)
 engine_server=engine.ThreadingHTTPServer(('127.0.0.1',0),engine.H);threading.Thread(target=engine_server.serve_forever,daemon=True).start();url='http://127.0.0.1:'+str(engine_server.server_port)
 try:
- health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.9.0'
+ health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.10.0'
  req=urllib.request.Request(url+'/web/session-audit',data=json.dumps({'url':'http://mock.cylabacademy.net:12345/login'}).encode(),headers={'Content-Type':'application/json'})
  with patch.object(w.http.client,'HTTPConnection',LocalConnection):
   with urllib.request.urlopen(req) as r:

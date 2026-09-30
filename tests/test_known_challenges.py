@@ -45,6 +45,22 @@ class CookieHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+class IncludesHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            body, ctype = b'<link rel="stylesheet" href="style.css"><script src="script.js"></script>', "text/html"
+        elif self.path == "/style.css":
+            body, ctype = b'body { background: lightblue; }\n/* academy{1nclu51v17y_1of2_ */', "text/css"
+        elif self.path == "/script.js":
+            body, ctype = b'function greetings(){ alert("Separate file"); }\n// f7w_2of2_64d6df37}', "application/javascript"
+        else:
+            body, ctype = b"not found", "text/plain"
+        self.send_response(200 if self.path in {"/", "/style.css", "/script.js"} else 404)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def log_message(self, *args): pass
+
 
 def test_webdecode_linked_assets():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
@@ -64,6 +80,17 @@ def test_webdecode_linked_assets():
 
 def test_css_rule_is_not_misreported_as_flag():
     assert wsa.extract_flag([("stylesheet", "ul{   padding: 0;   margin: 0; }")], wsa.DEFAULT_FLAG_PATTERNS)[0] is None
+
+
+def test_includes_reconstructs_only_comment_fragments():
+    srv = HTTPServer(("127.0.0.1", 0), IncludesHandler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True); thread.start()
+    try:
+        result = wsa.run_audit(f"http://127.0.0.1:{srv.server_port}/", challenge_text="## Includes\nWeb Exploitation")
+    finally:
+        srv.shutdown(); thread.join(timeout=2); srv.server_close()
+    assert result["success"] and result["flag"] == "academy{1nclu51v17y_1of2_f7w_2of2_64d6df37}", result
+    assert result["flag_source"] == "includes comment fragments", result
 
 
 def test_challenge_detection_is_specific():
@@ -88,6 +115,7 @@ def test_cookies_numeric_range_is_bounded_and_stops_on_flag():
 if __name__ == "__main__":
     test_webdecode_linked_assets()
     test_css_rule_is_not_misreported_as_flag()
+    test_includes_reconstructs_only_comment_fragments()
     test_challenge_detection_is_specific()
     test_cookies_numeric_range_is_bounded_and_stops_on_flag()
     print("known challenge tests passed")
