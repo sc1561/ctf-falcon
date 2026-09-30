@@ -3,10 +3,12 @@ import base64, json, re, shutil, subprocess, tempfile, gzip
 from datetime import datetime
 import urllib.request, urllib.parse, http.cookiejar
 from http.cookies import SimpleCookie
+from email.utils import parsedate_to_datetime
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.1.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.1.1"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -113,7 +115,16 @@ def session_audit(url):
                     if not m["httponly"]: findings.append("Missing HttpOnly")
                     if not m["secure"]: findings.append("Missing Secure")
                     if not m["samesite"]: findings.append("Missing SameSite")
-                    if m["expires"] or m["max-age"]: findings.append("Persistent cookie; server-side expiry is not verified")
+                    deleted=False
+                    if m["max-age"]:
+                        try: deleted=int(m["max-age"])<=0
+                        except ValueError: pass
+                    elif m["expires"]:
+                        try: deleted=parsedate_to_datetime(m["expires"]).timestamp()<=time.time()
+                        except (ValueError,TypeError,OverflowError): pass
+                    if deleted: findings.append("Cookie deletion instruction; not a persistent authenticated session")
+                    elif m["expires"] or m["max-age"]: findings.append("Persistent cookie; server-side expiry is not verified")
+                    else: findings.append("Browser session cookie; server-side expiry is not verified")
                     decoded=[]
                     for token in urllib.parse.unquote(m.value).split('.'):
                         try:
