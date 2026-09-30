@@ -10,7 +10,7 @@ class LocalConnection(real):
  def __init__(self,host,port=None,**kw):super().__init__('127.0.0.1' if host=='mock.cylabacademy.net' else host,target_port if host=='mock.cylabacademy.net' else port,**kw)
 engine_server=engine.ThreadingHTTPServer(('127.0.0.1',0),engine.H);threading.Thread(target=engine_server.serve_forever,daemon=True).start();url='http://127.0.0.1:'+str(engine_server.server_port)
 try:
- health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.22.0'
+ health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.23.0'
  artifact_req=urllib.request.Request(url+'/artifacts/analyze',data=b'picoCTF{local_artifact_scan}',headers={'Content-Type':'application/octet-stream','X-Filename':'sample.txt'})
  with urllib.request.urlopen(artifact_req) as r:
   artifact=json.load(r);assert artifact['ok'] and artifact['flags'][0]['flag']=='picoCTF{local_artifact_scan}'

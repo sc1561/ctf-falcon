@@ -18,9 +18,9 @@ ADMIN_HASH = hashlib.md5(b"3013").hexdigest()
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
-            body = (f'<script>const demoEmail="{EMAIL}"; const demoPassword="{PASSWORD}";</script>'
-                    '<form method="POST" action="/login"><input name="email">'
-                    '<input type="password" name="password"></form>').encode()
+            body = (f'<!-- Email: {EMAIL} Password: {PASSWORD} -->'
+                    '<script>fetch("/login", {method:"POST", headers:{"Content-Type":"application/json"}, '
+                    'body:JSON.stringify({email,password})});</script>').encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -41,9 +41,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
-        fields = urllib.parse.parse_qs(self.rfile.read(length).decode())
-        self.send_response(302 if fields.get("email") == [EMAIL] and fields.get("password") == [PASSWORD] else 401)
-        if self.command == "POST" and fields.get("email") == [EMAIL] and fields.get("password") == [PASSWORD]:
+        raw = self.rfile.read(length).decode()
+        if "application/json" in self.headers.get("Content-Type", ""):
+            import json
+            fields = json.loads(raw)
+            valid = fields.get("email") == EMAIL and fields.get("password") == PASSWORD
+        else:
+            fields = urllib.parse.parse_qs(raw)
+            valid = fields.get("email") == [EMAIL] and fields.get("password") == [PASSWORD]
+        self.send_response(302 if valid else 401)
+        if valid:
             self.send_header("Set-Cookie", "auth=1; Path=/; HttpOnly")
             self.send_header("Location", "/profile/")
         self.end_headers()
