@@ -1,14 +1,16 @@
 @echo off
 setlocal
-title Falcon Local Engine Setup
+title CTF Falcon Local - Windows
 cd /d "%~dp0"
 echo ==========================================
-echo   FALCON LOCAL ENGINE - WINDOWS SETUP
+echo      CTF FALCON LOCAL ENGINE v1.5
 echo ==========================================
 echo.
 where python >nul 2>nul || (echo [ERROR] Python was not found.& pause & exit /b 1)
 echo [OK] Python found.
-set "TSK="
+
+set "FLS="
+set "ICAT="
 for %%P in (
 "C:\Falcon\sleuthkit\bin"
 "C:\Falcon\sleuthkit"
@@ -16,23 +18,28 @@ for %%P in (
 "C:\Program Files\Sleuth Kit\bin"
 "%~dp0tools\sleuthkit\bin"
 "%~dp0tools\sleuthkit"
-) do if exist "%%~P\fls.exe" if exist "%%~P\mactime.exe" set "TSK=%%~P"
-if not defined TSK (
- echo.
- echo [NEEDED] Sleuth Kit Windows Binaries were not found.
- echo Download the official Windows Binaries from:
- echo https://sleuthkit.org/sleuthkit/download.php
- echo.
- echo Extract them so fls.exe is under:
- echo C:\Falcon\sleuthkit\bin
- echo.
- start "" "https://sleuthkit.org/sleuthkit/download.php"
+) do (
+ if not defined FLS if exist "%%~P\fls.exe" set "FLS=%%~P\fls.exe"
+ if not defined ICAT if exist "%%~P\icat.exe" set "ICAT=%%~P\icat.exe"
+)
+if not defined FLS (
+ echo [ERROR] fls.exe was not found.
+ echo Expected location: C:\Falcon\sleuthkit\bin\fls.exe
  pause
  exit /b 2
 )
-echo [OK] Sleuth Kit: %TSK%
-set "PATH=%TSK%;%PATH%"
+if not defined ICAT (
+ echo [ERROR] icat.exe was not found.
+ echo Expected location: C:\Falcon\sleuthkit\bin\icat.exe
+ pause
+ exit /b 3
+)
+echo [OK] fls: %FLS%
+echo [OK] icat: %ICAT%
 echo.
-echo Starting Falcon Local Engine...
+echo Starting Falcon at http://127.0.0.1:8765/
+start "" cmd /c "timeout /t 2 /nobreak >nul & start "" "http://127.0.0.1:8765/""
 python falcon_local.py
+echo.
+echo Falcon stopped.
 pause
