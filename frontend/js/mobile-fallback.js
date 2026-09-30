@@ -550,7 +550,7 @@ window.FalconNoFaRun=async function(){
   var button=document.createElement('button');button.type='button';button.textContent='🔓 اقرأ بيانات جلسة Flask';
   var output=document.createElement('p');button.onclick=async function(){button.disabled=true;try{var dec=await fetch(engine+'/no-fa/decode-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookie:input.value}),cache:'no-store'}).then(function(r){return r.json();});if(!dec.ok)throw new Error(dec.error||'فشل فك الجلسة');output.textContent=dec.otp_secret?'OTP لحساب '+(dec.username||'غير معروف')+': '+dec.otp_secret+' — صلاحية الرمز 120 ثانية.':'لم يظهر otp_secret في بيانات الجلسة.';}catch(e){output.textContent='تعذر فك الجلسة: '+e.message;}finally{button.disabled=false;}};
   cookieBox.appendChild(label);cookieBox.appendChild(input);cookieBox.appendChild(button);cookieBox.appendChild(output);result.appendChild(cookieBox);
- }catch(e){analyzeText(raw,true,'المحلل الذكي');var note=document.createElement('div');note.className='finding warn';note.textContent='لم يتمكن صقر من قراءة المجلد المحلي تلقائيًا ('+e.message+'). حدّث Falcon Local Engine إلى 2.20.0 وشغّله من C:\\Falcon ثم أعد التحليل.';result.appendChild(note);}
+ }catch(e){analyzeText(raw,true,'المحلل الذكي');var note=document.createElement('div');note.className='finding warn';note.textContent='لم يتمكن صقر من قراءة المجلد المحلي تلقائيًا ('+e.message+'). حدّث Falcon Local Engine إلى 2.20.1 وشغّله من C:\\Falcon ثم أعد التحليل.';result.appendChild(note);}
  result.scrollIntoView({behavior:'smooth',block:'start'});return true;
 };
 window.FalconRun=function(deep){

@@ -57,10 +57,15 @@ class NoFaAnalysisTests(unittest.TestCase):
             "username": "admin", "logged": "false", "otp_secret": "4821", "otp_timestamp": 123.5
         }).encode())
         encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
-        decoded = decode_flask_session("session=." + encoded + ".signature")
+        cookie = "." + encoded + ".signature"
+        decoded = decode_flask_session("Cookie: other=value; session=" + cookie + "; Path=/")
         self.assertEqual(decoded["username"], "admin")
         self.assertEqual(decoded["otp_secret"], "4821")
         self.assertFalse(decoded["signature_verified"])
+
+    def test_incomplete_compressed_cookie_has_clear_error(self):
+        with self.assertRaisesRegex(ValueError, "غير مكتملة"):
+            decode_flask_session("session=.")
 
 
 if __name__ == "__main__":

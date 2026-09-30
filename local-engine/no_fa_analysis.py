@@ -109,13 +109,22 @@ def analyze_artifacts(folder: str | Path) -> dict:
 def decode_flask_session(cookie: str) -> dict:
     """Decode Flask's client-side session payload; this does not verify its signature."""
     raw = str(cookie or "").strip()
+    if raw.lower().startswith("cookie:"):
+        raw = raw.split(":", 1)[1].strip()
+    if not raw.lower().startswith("session=") and re.search(r"(?:^|;\s*)session=", raw, re.I):
+        match = re.search(r"(?:^|;\s*)session=([^;]*)", raw, re.I)
+        raw = match.group(1).strip() if match else ""
     if raw.lower().startswith("session="):
         raw = raw.split("=", 1)[1].strip()
-    first = raw.split(".", 2)[0]
+    raw = raw.strip().strip('"').strip("'")
+    parts = raw.split(".", 2)
+    first = parts[0]
     compressed = first == ""
-    payload = raw.split(".", 2)[1] if compressed else first
+    if compressed and (len(parts) < 2 or not parts[1]):
+        raise ValueError("قيمة cookie غير مكتملة: الصق قيمة session كاملة بعد session=.")
+    payload = parts[1] if compressed else first
     if not payload or len(payload) > 32768:
-        raise ValueError("Invalid Flask session cookie")
+        raise ValueError("قيمة Flask session فارغة أو طويلة أكثر من اللازم.")
     payload += "=" * ((4 - len(payload) % 4) % 4)
     try:
         decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
