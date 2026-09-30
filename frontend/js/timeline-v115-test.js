@@ -8,10 +8,10 @@ async function run(){
  var r=document.getElementById('result');if(!r)return true;r.classList.remove('hidden');
  r.innerHTML='<div class="finding"><h3>🕒 Timeline Analyzer — V129</h3><p>تم التعرف على صورة قرص مضغوطة. جارٍ الاتصال بمحرك صقر المحلي لتنفيذ <code>fls + Falcon Python Timeline</code> تلقائيًا…</p><p>📦 <code>'+esc(f.name)+'</code> — '+fmt(f.size)+'</p></div>';
  try{
-  var health=await fetch('http://127.0.0.1:8765/health',{cache:'no-store'}).then(function(x){if(!x.ok)throw new Error('HEALTH_'+x.status);return x.json();});
+  var health=await fetch((location.hostname==='127.0.0.1'||location.hostname==='localhost'?'':'http://127.0.0.1:8765')+'/health',{cache:'no-store'}).then(function(x){if(!x.ok)throw new Error('HEALTH_'+x.status);return x.json();});
   if(!health.ok||!health.ready)throw new Error('ENGINE_NOT_READY');
   if(!health.sleuthkit)throw new Error('SLEUTHKIT');
-  var res=await fetch('http://127.0.0.1:8765/timeline/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':f.name},body:f});
+  var res=await fetch((location.hostname==='127.0.0.1'||location.hostname==='localhost'?'':'http://127.0.0.1:8765')+'/timeline/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':f.name},body:f});
   var d=await res.json(); if(!d.ok)throw new Error(d.error||'ENGINE');
   var anomalies=d.old_anomalies||[], lines=(d.evidence&&d.evidence.length?d.evidence:d.recent)||[], ex=d.extracted||[], flags=[];
   ex.forEach(function(x){(x.flags||[]).concat(x.candidates||[]).forEach(function(f){if(flags.indexOf(f)<0)flags.push(f);});});
