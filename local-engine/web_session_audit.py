@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -46,7 +46,6 @@ DEFAULT_FLAG_PATTERNS = [
     r"flag\{[^}]+\}",
     r"FLAG\{[^}]+\}",
     r"CTF\{[^}]+\}",
-    r"[A-Za-z0-9_]{2,12}\{[^}]{3,}\}",  # نمط عام (ملاذ أخير)
 ]
 DEFAULT_TIMEOUT = 15
 MAX_BODY = 2 * 1024 * 1024
@@ -1144,6 +1143,29 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
             res["discovered"]["resources_checked"].append(urlsplit(u).path)
         except (OSError, http.client.HTTPException, ValueError):
             continue
+
+    if slug == "webdecode":
+        # The challenge clue directs students to inspect linked pages too.
+        # Follow only same-origin HTML links present in the fetched page.
+        linked_pages = []
+        for attrs, _inner in _ANCHOR_RE.findall(recon["html"]):
+            href = _HREF_RE.search(attrs)
+            if not href:
+                continue
+            u = urljoin(origin, html_lib.unescape(href.group(1)))
+            p, b = urlsplit(u), urlsplit(origin)
+            if (p.scheme, p.netloc) == (b.scheme, b.netloc) and p.path.lower().endswith((".html", ".htm")) and u not in linked_pages:
+                linked_pages.append(u)
+        for u in linked_pages[:8]:
+            if u in visited:
+                continue
+            try:
+                rr = client.request("GET", u, max_body=MAX_BODY)
+                record(rr, ["اتباع رابط صفحة HTML ظاهر في الصفحة؛ تلميح WebDecode يطلب فحص الصفحات المرتبطة."])
+                resources.append((u, rr["body"]))
+                res["discovered"]["resources_checked"].append(urlsplit(u).path)
+            except (OSError, http.client.HTTPException, ValueError):
+                continue
     for path in extra_paths:
         try:
             rr = client.request("GET", urljoin(origin, path), max_body=MAX_BODY)

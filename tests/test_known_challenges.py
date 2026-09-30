@@ -8,22 +8,18 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "local-engine"))
 import web_session_audit as wsa
 
-FLAG = "picoCTF{source_asset_verified}"
+FLAG = "academy{web_succ3ssfully_d3c0ded_07989b25}"
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
-            cookie = self.headers.get("Cookie", "")
-            if "name=7" in cookie:
-                body = b'<p>picoCTF{numbered_cookie_verified}</p>'
-            else:
-                body = b'<html><head><script src="/assets/main.js"></script><link rel="stylesheet" href="/assets/site.css"></head><body>WebDecode</body></html>'
+            body = b'<html><head><link rel="stylesheet" href="/assets/site.css"></head><body><a href="about.html">About</a> WebDecode</body></html>'
             status, ctype = 200, "text/html"
-        elif self.path == "/assets/main.js":
-            body = f'// challenge source marker\nconst solved = "{FLAG}";'.encode()
-            status, ctype = 200, "application/javascript"
+        elif self.path == "/about.html":
+            body = b'<section notify_true="YWNhZGVteXt3ZWJfc3VjYzNzc2Z1bGx5X2QzYzBkZWRfMDc5ODliMjV9"></section>'
+            status, ctype = 200, "text/html"
         elif self.path == "/assets/site.css":
-            body = b'body { color: #111; }'
+            body = b'ul{ padding: 0; margin: 0; }'
             status, ctype = 200, "text/css"
         else:
             body, status, ctype = b"not found", 404, "text/plain"
@@ -63,7 +59,11 @@ def test_webdecode_linked_assets():
     assert result["recognized"] is True, result
     assert result["analyzer"] == "webdecode", result
     assert result["success"] is True and result["flag"] == FLAG, result
-    assert "/assets/main.js" in result["discovered"]["resources_checked"], result
+    assert "/about.html" in result["discovered"]["resources_checked"], result
+
+
+def test_css_rule_is_not_misreported_as_flag():
+    assert wsa.extract_flag([("stylesheet", "ul{   padding: 0;   margin: 0; }")], wsa.DEFAULT_FLAG_PATTERNS)[0] is None
 
 
 def test_challenge_detection_is_specific():
@@ -87,6 +87,7 @@ def test_cookies_numeric_range_is_bounded_and_stops_on_flag():
 
 if __name__ == "__main__":
     test_webdecode_linked_assets()
+    test_css_rule_is_not_misreported_as_flag()
     test_challenge_detection_is_specific()
     test_cookies_numeric_range_is_bounded_and_stops_on_flag()
     print("known challenge tests passed")
