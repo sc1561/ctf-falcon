@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1031,6 +1031,287 @@ def solve_old_sessions(client, origin, recon, steps, bodies, record,
 
 
 # --------------------------------------------------------------------------- #
+#  تحديات تعتمد على مصدر الصفحة/الموارد أو معرّفات معروفة من وصف التحدي          #
+# --------------------------------------------------------------------------- #
+_STATIC_CHALLENGES = {
+    "cookie monster secret recipe": ("Cookie Monster Secret Recipe", "cookie-monster"),
+    "ookie monster secret recipe": ("Cookie Monster Secret Recipe", "cookie-monster"),
+    "webdecode": ("WebDecode", "webdecode"),
+    "unminify": ("Unminify", "unminify"),
+    "intro to burp": ("IntroToBurp", "intro-to-burp"),
+    "introtoburp": ("IntroToBurp", "intro-to-burp"),
+    "bookmarklet": ("Bookmarklet", "bookmarklet"),
+    "local authority": ("Local Authority", "local-authority"),
+    "inspect html": ("Inspect HTML", "inspect-html"),
+    "includes": ("Includes", "includes"),
+    "scavenger hunt": ("Scavenger Hunt", "scavenger-hunt"),
+    "dont-use-client-side": ("dont-use-client-side", "dont-use-client-side"),
+    "don't use client side": ("dont-use-client-side", "dont-use-client-side"),
+    "logon": ("logon", "logon"),
+    "insp3ct0r": ("Insp3ct0r", "insp3ct0r"),
+    "where are the robots": ("where are the robots", "robots"),
+    "no fa": ("No FA", "no-fa"),
+    "hashgate": ("Hashgate", "hashgate"),
+    "credential stuffing": ("Credential Stuffing", "credential-stuffing"),
+    "secret box": ("Secret Box", "secret-box"),
+    "cookies": ("Cookies", "cookies-2021"),
+}
+
+_STATIC_GUIDANCE = {
+    "intro-to-burp": "سجّل حسابًا تجريبيًا ثم افحص استجابة تسجيل الدخول وطلب 2FA. سيعرض صقر النماذج والحقول والاستجابات؛ لا يخمّن رمز OTP.",
+    "no-fa": "يحتاج هذا التحدي ملف users.db وقائمة كلمات مرور محلية. افحص تجزئة SHA-256 دون إرسال محاولات دخول عشوائية؛ ثم راجع جلسة Flask ومرحلة 2FA.",
+    "hashgate": "تُظهر الصفحة معرّف المستخدم؛ افحص تحقق الخادم من المعرّف المجزأ، ثم اختبر معرّفات الموظفين المحدودة التي يثبتها وصف التحدي.",
+    "credential-stuffing": "هذا تحدٍ عبر TCP وملف بيانات اعتماد منفصل، وليس صفحة HTTP. شغّل المحلل الطرفي على ملف creds-dump المرفق مع تأخير وحد أقصى للمحاولات ضمن خدمة التحدي فقط.",
+    "secret-box": "افحص مصدر التطبيق المرفق. مسار إنشاء السر يضمّن المحتوى في SQL؛ أنشئ حسابًا تدريبيًا واستخدم ثغرة المسار لنسخ سر المشرف، ثم اقرأ السر بحسابك.",
+    "bookmarklet": "ابحث عن bookmarklet في المصدر؛ اقرأ دالة فك النص ونفّذ تحويلها محليًا على السلسلة المضمّنة.",
+    "local-authority": "تحقق من ملف JavaScript الذي يربط النموذج؛ بيانات الاعتماد والتحقق موجودان في جهة العميل.",
+    "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
+    "cookies-2021": "يعتمد الحل على قيمة كوكي name المتغيرة؛ افحص القيمة الحالية ثم غيّر الرقم يدويًا ضمن هذا التحدي، وسيشرح صقر استجابة كل طلب.",
+    "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
+    "get-ahead": "يقارن صقر طرق HTTP المعلنة في الصفحة ورؤوس استجابتها؛ لن يجرّب مسارات غير مرتبطة.",
+}
+
+
+def detect_named_challenge(challenge_text: str | None):
+    text = challenge_text or ""
+    # Challenge text is pasted with its title on a standalone first line. Match
+    # titles at line starts to avoid treating prose like "this includes ..." as
+    # the legacy challenge named Includes.
+    for needle in sorted(_STATIC_CHALLENGES, key=len, reverse=True):
+        title = re.compile(r"(?im)^\s*(?:#{1,6}\s*)?" + re.escape(needle) + r"(?=\s|$|[—-])")
+        if title.search(text):
+            return _STATIC_CHALLENGES[needle]
+    return None
+
+
+def _page_resources(html: str, base_url: str) -> list[str]:
+    refs = []
+    for tag in re.findall(r"<(?:script|link)\b[^>]*>", html, re.I):
+        m = re.search(r"\b(?:src|href)\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+        if m:
+            url = urljoin(base_url, html_lib.unescape(m.group(2)))
+            p = urlsplit(url)
+            b = urlsplit(base_url)
+            if (p.scheme, p.netloc) == (b.scheme, b.netloc) and url not in refs:
+                refs.append(url)
+    return refs[:16]
+
+
+def _decode_cookie_text(text: str) -> list[str]:
+    """Try bounded URL/Base64 decoding without logging raw cookie values."""
+    import base64
+    from urllib.parse import unquote
+    out, current = [], text
+    for _ in range(3):
+        candidate = unquote(current)
+        try:
+            padded = candidate + "=" * ((4 - len(candidate) % 4) % 4)
+            raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+            decoded = raw.decode("utf-8")
+        except Exception:
+            decoded = ""
+        if not decoded or decoded == current:
+            break
+        out.append(decoded)
+        current = decoded
+    return out
+
+
+def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, record,
+                            flag_patterns) -> dict:
+    res = _base_result(origin, title, slug, recognized=True)
+    res["steps"] = steps
+    res["discovered"] = {"resources_checked": [], "challenge_slug": slug}
+    resources = [(origin, recon["html"])]
+    res["explanation_ar"].append("تعرّف صقر على اسم التحدي من النص الذي أدخلته، ثم يفحص الصفحة وملفات CSS/JavaScript المرتبطة بها فقط.")
+    # Certain legacy tasks explicitly teach discovery of these conventional files.
+    extra_paths = []
+    if slug == "robots":
+        extra_paths = ["/robots.txt"]
+    elif slug == "scavenger-hunt":
+        extra_paths = ["/robots.txt", "/.htaccess", "/.DS_Store"]
+    queue = _page_resources(recon["html"], origin)
+    visited = set()
+    while queue and len(visited) < 16:
+        u = queue.pop(0)
+        if u in visited:
+            continue
+        visited.add(u)
+        try:
+            rr = client.request("GET", u, max_body=MAX_BODY)
+            record(rr, ["قراءة مورد CSS/JavaScript مرتبط في HTML."])
+            resources.append((u, rr["body"]))
+            res["discovered"]["resources_checked"].append(urlsplit(u).path)
+        except (OSError, http.client.HTTPException, ValueError):
+            continue
+    for path in extra_paths:
+        try:
+            rr = client.request("GET", urljoin(origin, path), max_body=MAX_BODY)
+            record(rr, ["قراءة ملف اكتشاف معروف لهذا التحدي؛ لا يوجد تخمين لمسارات أخرى."])
+            resources.append((path, rr["body"]))
+            res["discovered"]["resources_checked"].append(path)
+        except (OSError, http.client.HTTPException, ValueError):
+            continue
+
+    if slug in ("robots", "scavenger-hunt"):
+        # Follow only paths literally disclosed by robots.txt. This keeps the
+        # Scavenger Hunt flow clue-driven instead of probing a wordlist.
+        robots_body = next((body for label, body in resources if label == "/robots.txt"), "")
+        disclosed = []
+        for line in robots_body.splitlines():
+            m = re.match(r"\s*Disallow\s*:\s*(/\S*)", line, re.I)
+            if m and m.group(1) not in disclosed:
+                disclosed.append(m.group(1))
+        for path in disclosed[:10]:
+            if path in ("/", "/*") or any(urlsplit(u).path == path for u, _ in resources if str(u).startswith("http")):
+                continue
+            try:
+                rr = client.request("GET", urljoin(origin, path), max_body=MAX_BODY)
+                record(rr, ["اتباع المسار الذي كشفه robots.txt في نص التحدي."])
+                resources.append((path, rr["body"]))
+                res["discovered"]["resources_checked"].append(path)
+            except (OSError, http.client.HTTPException, ValueError):
+                continue
+
+    if slug == "cookies-2021":
+        # The challenge explicitly maps the `name` cookie to a small numbered
+        # catalog. Bound enumeration to 0..32 and stop at the first flag.
+        for index in range(33):
+            client.cookies["name"] = str(index)
+            try:
+                rr = client.request("GET", origin, max_body=MAX_BODY)
+                record(rr, [f"اختبار قيمة الكوكي الرقمية {index} في تحدي Cookies المحدد."])
+                resources.append((f"Cookies index {index}", rr["body"]))
+                if extract_flag([("candidate response", rr["body"])], flag_patterns)[0]:
+                    break
+            except (OSError, http.client.HTTPException, ValueError):
+                break
+
+    if slug == "get-ahead":
+        try:
+            head = client.request("HEAD", origin, max_body=MAX_BODY)
+            record(head, ["تجربة طريقة HEAD التي يشير إليها اسم التحدي بعد جلب الصفحة الرئيسية."])
+            header_text = "\n".join(f"{k}: {v}" for k, v in head.get("headers", []))
+            resources.append(("HEAD response headers", header_text))
+        except (OSError, http.client.HTTPException, ValueError):
+            pass
+
+    if slug == "logon":
+        # The challenge is specifically about a role cookie; only mutate it if
+        # the page or its response gave evidence that such a cookie is used.
+        login_form = next((f for f in recon.get("forms", [])
+                           if f.get("method") == "POST" and
+                           any(x.lower() in {"username", "user"} for x in f.get("fields", []))), None)
+        if login_form:
+            values = {}
+            for field in login_form["fields"]:
+                low = field.lower()
+                values[field] = "Joe" if low in {"username", "user"} else TEST_PASSWORD
+            action = urljoin(origin, login_form.get("action") or "/")
+            try:
+                login_resp = client.request("POST", action, urlencode(values))
+                record(login_resp, ["تسجيل دخول Joe ببيانات اختبارية وفق النموذج الظاهر في تحدي logon."])
+                resources.append(("logon login response", login_resp["body"]))
+                if login_resp.get("location"):
+                    nxt = urljoin(action, login_resp["location"])
+                    if urlsplit(nxt).netloc == urlsplit(origin).netloc:
+                        landing = client.request("GET", nxt)
+                        record(landing, ["اتباع التحويل الذي أعاده نموذج الدخول ضمن أصل التحدي."])
+                        resources.append(("logon landing page", landing["body"]))
+            except (OSError, http.client.HTTPException, ValueError):
+                pass
+        role_cookie = next((n for n in client.cookies if n.lower() in {"admin", "role", "is_admin"}), None)
+        if role_cookie or re.search(r"\b(admin|role)\b.{0,50}(cookie|document\.cookie)", recon["html"], re.I | re.S):
+            client.cookies[role_cookie or "admin"] = "True"
+            role = client.request("GET", origin)
+            record(role, ["اختبار كوكي الدور الموثق في تحدي logon ثم قراءة الصفحة الرئيسية."])
+            resources.append(("logon role-cookie response", role["body"]))
+
+    # Cookie-based teaching challenges: decode only cookies received from this site.
+    decoded_cookies = []
+    if slug in ("cookie-monster", "cookies-2021"):
+        if slug == "cookie-monster":
+            login_form = next((f for f in recon.get("forms", [])
+                               if f.get("method") == "POST" and
+                               any(x.lower() in {"username", "user", "email"} for x in f.get("fields", [])) and
+                               any(x.lower() in {"password", "pass"} for x in f.get("fields", []))), None)
+            if login_form:
+                values = {}
+                for field in login_form["fields"]:
+                    low = field.lower()
+                    values[field] = ("falcon-student@example.invalid" if "email" in low else
+                                     TEST_PASSWORD if "pass" in low else "falcon-student")
+                action = urljoin(origin, login_form.get("action") or "/")
+                try:
+                    posted = client.request("POST", action, urlencode(values))
+                    record(posted, ["إرسال بيانات اختبار غير حقيقية إلى نموذج الدخول المكتشف في Cookie Monster لفحص الكوكي المردودة."])
+                    resources.append(("cookie-monster login response", posted["body"]))
+                    if posted.get("location"):
+                        nxt = urljoin(action, posted["location"])
+                        if urlsplit(nxt).netloc == urlsplit(origin).netloc:
+                            followed = client.request("GET", nxt)
+                            record(followed, ["اتباع تحويل GET المعلن بعد إرسال نموذج التحدي."])
+                            resources.append(("cookie-monster redirected page", followed["body"]))
+                except (OSError, http.client.HTTPException, ValueError):
+                    pass
+        for name, value in list(client.cookies.items()):
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", name):
+                continue
+            decoded_cookies.extend(_decode_cookie_text(value))
+        resources.extend((f"cookie:{name}", value) for name, value in enumerate(decoded_cookies))
+        if decoded_cookies:
+            res["discovered"]["cookie_decode_layers"] = len(decoded_cookies)
+
+    # Search direct content first, then common encoded source literals.
+    flag, source = extract_flag(resources + bodies, flag_patterns)
+    if not flag and slug in ("insp3ct0r", "includes", "scavenger-hunt", "dont-use-client-side"):
+        joined = "".join(body for _, body in resources)
+        flag, source = extract_flag([(f"{slug} ordered page/resources", joined)], flag_patterns)
+    if not flag and slug == "webdecode":
+        import base64
+        encoded_candidates = re.findall(r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9_+/=-]{20,4096})(?![A-Za-z0-9+/=_-])",
+                                        "\n".join(body for _, body in resources))
+        for candidate in encoded_candidates[:64]:
+            try:
+                decoded = base64.urlsafe_b64decode(candidate + "=" * ((4-len(candidate)%4)%4)).decode("utf-8", "ignore")
+            except Exception:
+                continue
+            flag, source = extract_flag([(f"WebDecode base64 candidate", decoded)], flag_patterns)
+            if flag:
+                break
+    if not flag and slug == "bookmarklet":
+        joined = "\n".join(body for _, body in resources)
+        encrypted = re.search(r"encryptedFlag\s*=\s*['\"]([^'\"]{8,4096})['\"]", joined, re.I)
+        key_literal = re.search(r"(?:key|password)\s*=\s*['\"]([^'\"]{1,64})['\"]", joined, re.I)
+        if encrypted and key_literal:
+            key = key_literal.group(1)
+            plain = "".join(chr((ord(ch) - ord(key[i % len(key)]) + 256) % 256)
+                            for i, ch in enumerate(encrypted.group(1)))
+            flag, source = extract_flag([( "bookmarklet decoded locally", plain)], flag_patterns)
+        # picoCTF's bookmarklet stores byte values encrypted by subtracting a
+        # repeating key. Decode only a literal array and key found in page source.
+        arr = re.search(r"\[\s*((?:\d{1,3}\s*,\s*){8,}\d{1,3})\s*\]", joined)
+        key = re.search(r"(?:key|password)\s*[:=]\s*['\"]([^'\"]{1,64})['\"]", joined, re.I)
+        if not flag and arr and key:
+            try:
+                nums = [int(x) for x in re.findall(r"\d+", arr.group(1))]
+                plain = "".join(chr((v - ord(key.group(1)[i % len(key.group(1))])) % 256) for i, v in enumerate(nums))
+                flag, source = extract_flag([( "bookmarklet decoded locally", plain)], flag_patterns)
+            except Exception:
+                pass
+
+    res["discovered"]["forms"] = recon.get("forms", [])[:8]
+    res["discovered"]["comments"] = [c["raw"] for c in recon.get("decoded_comments", [])][:6]
+    res["explanation_ar"].append(_STATIC_GUIDANCE.get(slug, "تم جمع الأدلة من الصفحة والموارد المرتبطة؛ يوضح الشرح ما يلزم للخطوة التعليمية التالية."))
+    if flag:
+        res["success"], res["flag"], res["flag_source"] = True, flag, source
+        res["explanation_ar"].append("عُثر على العلم في محتوى استجابة/مورد تم جلبه من أصل التحدي.")
+    else:
+        res["warnings"].append("لم يظهر العلم نصًا في الموارد التي فُحصت. قد يتطلب التحدي إجراءً تفاعليًا أو ملفًا مرفقًا؛ راجع النماذج والشرح.")
+    return res
+
+
+# --------------------------------------------------------------------------- #
 #  نتيجة "غير معروف"                                                            #
 # --------------------------------------------------------------------------- #
 def unrecognized_result(origin, recon, steps) -> dict:
@@ -1106,6 +1387,11 @@ def run_audit(url: str,
     upload = detect_n0s4n1ty(recon)
     if upload:
         return solve_n0s4n1ty(client, origin, recon, upload, steps, record, flag_patterns)
+
+    named = detect_named_challenge(challenge_text)
+    if named:
+        return _known_challenge_result(client, origin, recon, named[0], named[1],
+                                       steps, bodies, record, flag_patterns)
 
     return unrecognized_result(origin, recon, steps)
 
