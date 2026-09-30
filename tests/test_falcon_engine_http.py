@@ -10,7 +10,7 @@ class LocalConnection(real):
  def __init__(self,host,port=None,**kw):super().__init__('127.0.0.1' if host=='mock.cylabacademy.net' else host,target_port if host=='mock.cylabacademy.net' else port,**kw)
 engine_server=engine.ThreadingHTTPServer(('127.0.0.1',0),engine.H);threading.Thread(target=engine_server.serve_forever,daemon=True).start();url='http://127.0.0.1:'+str(engine_server.server_port)
 try:
- health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.24.0'
+ health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.25.0'
  artifact_req=urllib.request.Request(url+'/artifacts/analyze',data=b'picoCTF{local_artifact_scan}',headers={'Content-Type':'application/octet-stream','X-Filename':'sample.txt'})
  with urllib.request.urlopen(artifact_req) as r:
   artifact=json.load(r);assert artifact['ok'] and artifact['flags'][0]['flag']=='picoCTF{local_artifact_scan}'
@@ -20,14 +20,18 @@ try:
   with urllib.request.urlopen(req) as r:
    data=json.load(r);assert r.headers['Access-Control-Allow-Origin']=='https://sc1561.github.io'
  assert data['success'] and data['flag']==mock.FLAG and data['ok'];assert data['target'].endswith(':12345/');assert len(data['steps'])==8
- tcp_req=urllib.request.Request(url+'/web/session-audit',data=json.dumps({'url':'https://challenge-files.cylabacademy.net/library/test/creds-dump.txt','challenge_text':'Credential Stuffing\nWeb Exploitation\ncreds-dump.txt\nnc xebec.cylabacademy.net 12360'}).encode(),headers={'Content-Type':'application/json'})
+ tcp_req=urllib.request.Request(url+'/web/session-audit',data=json.dumps({'url':'https://challenge-files.cylabacademy.net/library/test/creds-dump.txt','challenge_text':'Credential Stuffing\nWeb Exploitation\ncreds-dump.txt\nnc chatelaine.cylabacademy.net 34707'}).encode(),headers={'Content-Type':'application/json'})
  with urllib.request.urlopen(tcp_req) as r:
   tcp=json.load(r);assert tcp['analyzer']=='credential-stuffing' and tcp['steps']==[]
- assert 'TCP' in tcp['target'] and not tcp['success']
+ assert tcp['target']=='TCP chatelaine.cylabacademy.net:34707' and not tcp['success']
  no_confirm=urllib.request.Request(url+'/credential-stuffing/solve',data=json.dumps({'confirm':False}).encode(),headers={'Content-Type':'application/json'})
  try:urllib.request.urlopen(no_confirm)
  except urllib.error.HTTPError as e:assert e.code==400
  else:raise AssertionError('credential attempt started without confirmation')
+ invalid_target=urllib.request.Request(url+'/credential-stuffing/solve',data=json.dumps({'confirm':True,'challenge_text':'Credential Stuffing\nnc example.net 22'}).encode(),headers={'Content-Type':'application/json'})
+ try:urllib.request.urlopen(invalid_target)
+ except urllib.error.HTTPError as e:assert e.code==400
+ else:raise AssertionError('credential solver accepted a non-Cylab host')
  c=w.analyze_set_cookie('s=x; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT');assert c['intent']=='set'
  client=w.HttpClient();client.origin=('http','one',80)
  try:client.request('GET','http://two/')

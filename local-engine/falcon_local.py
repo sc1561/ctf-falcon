@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.24.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.25.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -95,12 +95,16 @@ def session_audit(url, challenge_text="", email=None):
     import web_session_audit
     named=web_session_audit.detect_named_challenge(challenge_text)
     if named and named[1]=="credential-stuffing":
-        return {"ok":True,"engine_version":VERSION,"target":"TCP xebec.cylabacademy.net:12360",
+        import credential_stuffing
+        tcp_target=credential_stuffing.parse_target(challenge_text)
+        target=(f"TCP {tcp_target[0]}:{tcp_target[1]}" if tcp_target else "TCP: لم يُعثر على هدف nc صالح")
+        return {"ok":True,"engine_version":VERSION,"target":target,
           "challenge":"Credential Stuffing","analyzer":"credential-stuffing","recognized":True,
           "success":False,"steps":[],"discovered":{"protocol":"TCP","file":"creds-dump.txt"},
           "explanation_ar":["هذا التحدي يستخدم اتصال TCP، وليس صفحة ويب. لم يُرسل أي طلب HTTP.",
             "احفظ creds-dump.txt في C:\\Falcon\\analysis، ثم استخدم زر فحص الملف المخصص لهذا التحدي."],
-          "warnings":["لم يبدأ اختبار السجلات؛ يلزم تشغيل المسار المخصص بزر الطالب بعد حفظ الملف."]}
+          "warnings":["لم يبدأ اختبار السجلات؛ يلزم تشغيل المسار المخصص بزر الطالب بعد حفظ الملف." if tcp_target else
+                      "لم يُعثر في الوصف على أمر nc لهدف داخل نطاق cylabacademy.net/.org."]}
     u=urllib.parse.urlsplit(url)
     host=(u.hostname or "")
     academy=host.endswith(".cylabacademy.net") or host.endswith(".cylabacademy.org")
@@ -187,8 +191,13 @@ class H(BaseHTTPRequestHandler):
                 data=json.loads(self.rfile.read(n))
                 if data.get("confirm") is not True:
                     return reply(self,400,{"ok":False,"error":"ابدأ المحاولة من زر التحدي بعد مراجعة الهدف والملف."})
-                from credential_stuffing import solve
-                result=solve(ANALYSIS_ROOT/"creds-dump.txt")
+                import web_session_audit, credential_stuffing
+                challenge_text=str(data.get("challenge_text", ""))[:65536]
+                named=web_session_audit.detect_named_challenge(challenge_text)
+                target=credential_stuffing.parse_target(challenge_text)
+                if not named or named[1]!="credential-stuffing" or not target:
+                    return reply(self,400,{"ok":False,"error":"يلزم وصف Credential Stuffing وأمر nc صالح ضمن نطاق Cylab Academy."})
+                result=credential_stuffing.solve(ANALYSIS_ROOT/"creds-dump.txt",*target)
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})

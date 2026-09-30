@@ -486,19 +486,24 @@
   function isCredentialStuffingPrompt(text) {
     text=String(text||'');
     return /(?:^|\n)\s*(?:#{1,6}\s*)?Credential\s+Stuffing(?=\s|$|[—-])/im.test(text) &&
-      /creds-dump\.txt/i.test(text) && /xebec\.cylabacademy\.net\s+12360/i.test(text);
+      /creds-dump\.txt/i.test(text) && /\bnc\s+[a-z0-9.-]+\.cylabacademy\.(?:net|org)\s+\d{1,5}\b/i.test(text);
+  }
+  function credentialTarget(text) {
+    var m=String(text||'').match(/\bnc\s+([a-z0-9.-]+\.cylabacademy\.(?:net|org))\s+(\d{1,5})\b/i);
+    return m?{host:m[1].toLowerCase(),port:Number(m[2])}:null;
   }
   async function runCredentialStuffing(text) {
     if(busy)return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();out.innerHTML='';
     var artifacts=renderArtifactGuidance(text);if(artifacts)out.appendChild(artifacts);
+    var target=credentialTarget(text);
     var card=el('div','fws-card');
     card.appendChild(el('div','fws-h','🧭 تحدي TCP: Credential Stuffing'));
-    card.appendChild(el('p',null,'احفظ الملف creds-dump.txt داخل C:\\Falcon\\analysis. بعد ذلك اضغط الزر ليجرب صقر سجلات الملف على خدمة هذا التحدي فقط: xebec.cylabacademy.net:12360.'));
+    card.appendChild(el('p',null,'احفظ الملف creds-dump.txt داخل C:\\Falcon\\analysis. بعد ذلك اضغط الزر ليجرب صقر سجلات الملف على خدمة هذا التحدي فقط: '+(target?target.host+':'+target.port:'الهدف المذكور مع nc في الوصف')+'.'));
     card.appendChild(el('p','fws-muted','الحد الأقصى 1500 سجل، بترتيب الملف، مع فاصل زمني قصير. لا يرسل صقر الطلب إلى رابط الملف ولا إلى أي موقع آخر، ولا يعرض كلمات المرور في النتيجة.'));
     var button=el('button','fws-btn','▶ ابدأ فحص ملف التحدي');
-    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.24.0 أو أحدث.');
+    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.25.0 أو أحدث.');
     card.appendChild(button);card.appendChild(status);out.appendChild(card);
     button.onclick=async function(){
       button.disabled=true;status.textContent='يجري فحص الملف والاتصال بخدمة CTF المحددة…';
@@ -506,8 +511,8 @@
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<24))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.24.0 ثم أعد تشغيله.');
-        var response=await fetch(engine+'/credential-stuffing/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true}),cache:'no-store'});
+        if(v[0]<2||(v[0]===2&&v[1]<25))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.25.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/credential-stuffing/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
         var data=await response.json();
         if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تشغيل فحص ملف الاعتمادات.');
         status.textContent=data.success?'✅ عُثر على العلم بعد '+data.attempts+' محاولة.':'انتهى الفحص دون العثور على العلم بعد '+data.attempts+' محاولة.';
@@ -544,13 +549,13 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.24.0…';
+      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.25.0…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
-      if(version[0]<2||(version[0]===2&&version[1]<24))
-        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.24.0 ثم أعد تشغيل المحرك.');
+      if(version[0]<2||(version[0]===2&&version[1]<25))
+        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.25.0 ثم أعد تشغيل المحرك.');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');

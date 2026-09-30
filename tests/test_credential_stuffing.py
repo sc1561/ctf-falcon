@@ -47,12 +47,15 @@ def main():
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "creds-dump.txt"
             path.write_text("wrong;pair\nvalid;pair\nbad-line\n", encoding="utf-8")
-            connector = lambda _address, timeout: socket.create_connection(mock.address, timeout)
-            result = cs.solve(path, connector=connector, delay=0)
+            def connector(address, timeout):
+                assert address == ("chatelaine.cylabacademy.net", 34707)
+                return socket.create_connection(mock.address, timeout)
+            result = cs.solve(path, "chatelaine.cylabacademy.net", 34707, connector=connector, delay=0)
             assert result["success"] and result["flag"] == FLAG, result
             assert result["attempts"] == 2 and result["malformed"] == 1
             assert result["username"] == "valid" and "password" not in result
-            assert cs.TARGET_HOST == "xebec.cylabacademy.net" and cs.TARGET_PORT == 12360
+            assert cs.parse_target("Credential Stuffing\nnc chatelaine.cylabacademy.net 34707") == ("chatelaine.cylabacademy.net", 34707)
+            assert cs.parse_target("Credential Stuffing\nnc evil.example 34707") is None
     finally:
         mock.close()
     print("Credential Stuffing bounded TCP solver test passed")
