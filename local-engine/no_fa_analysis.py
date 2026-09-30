@@ -49,6 +49,12 @@ def analyze_artifacts(folder: str | Path) -> dict:
         },
         "account_count": 0,
         "admin": {"exists": False, "two_fa": None, "password_candidate": None},
+        "password_evidence": {
+            "algorithm": None,
+            "source_expression": None,
+            "database_columns": [],
+            "salt_column_present": None,
+        },
         "source_findings": [],
         "wordlist_used": [],
         "next_steps": [],
@@ -63,6 +69,11 @@ def analyze_artifacts(folder: str | Path) -> dict:
             pass
     if re.search(r"hashlib\.sha256\s*\(", source):
         result["source_findings"].append("passwords_sha256_unsalted")
+        result["password_evidence"]["algorithm"] = "SHA-256"
+        result["password_evidence"]["source_expression"] = next(
+            (line.strip() for line in source.splitlines() if re.search(r"hashlib\.sha256\s*\(", line)),
+            None,
+        )
     if re.search(r"session\s*\[\s*['\"]otp_secret['\"]\s*\]\s*=", source):
         result["source_findings"].append("otp_stored_in_flask_session")
     if re.search(r"random\.randint\s*\(\s*1000\s*,\s*9999\s*\)", source):
@@ -79,6 +90,9 @@ def analyze_artifacts(folder: str | Path) -> dict:
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
                 ).fetchone()
                 if table:
+                    columns = [str(row[1]) for row in connection.execute("PRAGMA table_info(users)").fetchall()]
+                    result["password_evidence"]["database_columns"] = columns
+                    result["password_evidence"]["salt_column_present"] = any("salt" in column.lower() for column in columns)
                     rows = connection.execute(
                         "SELECT username, password, two_fa FROM users"
                     ).fetchall()

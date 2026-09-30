@@ -48,6 +48,10 @@ class NoFaAnalysisTests(unittest.TestCase):
         self.assertIn("otp_valid_for_120_seconds", result["source_findings"])
         self.assertTrue(any("F12" in step for step in result["cookie_steps_ar"]))
         self.assertTrue(any("Value" in step for step in result["cookie_steps_ar"]))
+        self.assertEqual(result["password_evidence"]["algorithm"], "SHA-256")
+        self.assertIn("hashlib.sha256", result["password_evidence"]["source_expression"])
+        self.assertIn("password", result["password_evidence"]["database_columns"])
+        self.assertFalse(result["password_evidence"]["salt_column_present"])
 
     def test_missing_artifacts_are_reported_without_failure(self):
         result = analyze_artifacts(self.folder / "missing")
