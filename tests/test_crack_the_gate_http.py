@@ -41,7 +41,7 @@ url = "http://127.0.0.1:" + str(engine_server.server_port)
 
 try:
     health = json.load(urllib.request.urlopen(url + "/health"))
-    assert health["version"] == "2.4.0", health
+    assert health["version"] == "2.4.1", health
 
     req = urllib.request.Request(
         url + "/web/session-audit",

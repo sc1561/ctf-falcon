@@ -391,13 +391,13 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.4.0…';
+    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.4.1…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
-      if(version[0]<2||(version[0]===2&&(version[1]<3||version[1]<4)))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.4.0 ثم أعد تشغيل المحرك (يدعم Crack the Gate وOld Sessions).');
+      if(version[0]<2||(version[0]===2&&(version[1]<3||(version[1]<4||(version[1]===4&&(version[2]||0)<1)))))
+        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.4.1 ثم أعد تشغيل المحرك (يدعم Crack the Gate وOld Sessions).');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');

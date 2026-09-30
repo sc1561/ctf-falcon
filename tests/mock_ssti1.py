@@ -15,3 +15,13 @@ class Handler(BaseHTTPRequestHandler):
         self._send("<p>"+value+"</p>")
 def start_server():
     server=ThreadingHTTPServer(("127.0.0.1",0),Handler);Thread(target=server.serve_forever,daemon=True).start();return server,f"http://127.0.0.1:{server.server_port}/"
+
+class RedirectHandler(Handler):
+    def do_POST(self):
+        if self.path == "/":
+            self.send_response(307); self.send_header("Location", "/announce"); self.send_header("Content-Length", "0"); self.end_headers(); return
+        if self.path == "/announce": return super().do_POST()
+        self.send_error(404)
+
+def start_redirect_server():
+    server=ThreadingHTTPServer(("127.0.0.1",0),RedirectHandler);Thread(target=server.serve_forever,daemon=True).start();return server,f"http://127.0.0.1:{server.server_port}/"
