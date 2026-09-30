@@ -1,5 +1,5 @@
 /* ==========================================================================
- * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v163
+ * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v164
  * --------------------------------------------------------------------------
  * وحدة واجهة مستقلة تستدعي المحرك المحلي على /web/session-audit وتعرض:
  *   - جدولًا زمنيًا لكل خطوة (الطريقة/المسار/الحالة/التحويل)
@@ -197,6 +197,14 @@
         entries.push({name: filename, url: url.href});
       } catch (_) {}
     });
+    // picoCTF 2026 No FA attachments are often pasted as plain "here" labels,
+    // with their targets stripped by the textarea. Keep their documented names.
+    if (/(?:^|\n)\s*(?:#{1,6}\s*)?No\s*FA(?=\s|$|[—-])/im.test(text)) {
+      ["app.py", "users.db"].forEach(function (name) {
+        if (!entries.some(function (item) { return item.name.toLowerCase() === name; }))
+          entries.push({name: name, url: null});
+      });
+    }
     return entries;
   }
 
@@ -205,15 +213,19 @@
     if (!files.length) return null;
     var card = el("div", "fws-card fws-artifacts");
     card.appendChild(el("div", "fws-h", "📥 ملفات التحدي المطلوبة"));
-    card.appendChild(el("p", null, "نزّل الملفات من الروابط أدناه، ثم احفظها داخل المجلد C:\\Falcon\\analysis مع إبقاء اسم كل ملف وامتداده بالإنجليزية كما هو. استخدم الملف من هذا المجلد عند تشغيل التحليل المحلي أو ارفعه في صقر إذا طلب ذلك."));
+    card.appendChild(el("p", null, "نزّل ملفات التحدي من روابطه، ثم احفظها داخل المجلد C:\\Falcon\\analysis بأسمائها وامتداداتها الإنجليزية كما تظهر أدناه. استخدم الملفات من هذا المجلد عند تشغيل التحليل المحلي أو ارفعها في صقر إذا طلب ذلك."));
     var list = el("ul", "fws-ul");
     files.forEach(function (file) {
       var item = el("li");
-      var link = el("a", null, file.name);
-      link.href = file.url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      item.appendChild(link);
+      if (file.url) {
+        var link = el("a", null, file.name);
+        link.href = file.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        item.appendChild(link);
+      } else {
+        item.appendChild(el("code", null, file.name));
+      }
       list.appendChild(item);
     });
     card.appendChild(list);
