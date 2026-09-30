@@ -29,7 +29,7 @@ async function analyze(file){
    var decodedParts=bodies.map(unpack64), total=[]; decodedParts.forEach(function(a){total=total.concat(a)});
    tryData(total);
  }
- out.innerHTML='<div class="studentSummary"><h2>📡 Rogue Tower Analyzer — V134</h2><div class="studentCard"><b>البرج المشبوه</b><p>PLMN <code>'+clean(rogue[1])+'</code> — CELLID <code>'+clean(rogue[2])+'</code></p></div><div class="studentCard"><b>الجهاز المتأثر</b><p>IMSI <code>'+clean(victim[1])+'</code></p></div><p>أجزاء HTTP POST المكتشفة: <strong>'+bodies.length+'</strong></p>'+(hits.length?'<div class="studentCard success"><b>🚩 العلم المرشح</b><div class="flag">'+clean(hits[0])+'</div><small>IMSI-derived key: '+clean(used)+'</small></div>':'<p>تم تحديد البرج والجهاز، لكن لم يظهر علم صالح بعد.</p>')+'</div>';
+ out.innerHTML='<div class="studentSummary"><h2>📡 Rogue Tower Analyzer — V135</h2><div class="studentCard"><b>البرج المشبوه</b><p>PLMN <code>'+clean(rogue[1])+'</code> — CELLID <code>'+clean(rogue[2])+'</code></p></div><div class="studentCard"><b>الجهاز المتأثر</b><p>IMSI <code>'+clean(victim[1])+'</code></p></div><p>أجزاء HTTP POST المكتشفة: <strong>'+bodies.length+'</strong></p>'+(hits.length?'<div class="studentCard success"><b>🚩 العلم المرشح</b><div class="flag">'+clean(hits[0])+'</div><small>IMSI-derived key: '+clean(used)+'</small></div>':'<p>تم تحديد البرج والجهاز، لكن لم يظهر علم صالح بعد.</p>')+'</div>';
  out.className='result'; return true;
 }
 window.FalconRogueTowerRun=async function(){var f=(el('file')&&el('file').files&&el('file').files[0])||window.__falconDroppedFile;if(f){try{if(await analyze(f))return false}catch(e){console.warn(e)}}return previous?previous():false};
