@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.11.0"
+__version__ = "2.12.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1066,6 +1066,7 @@ _STATIC_GUIDANCE = {
     "local-authority": "يتبع صقر مسار النموذج إلى login.php، ويقرأ secure.js المرتبط، ثم يستخدم الاعتمادين الموجودين فيه لإكمال نموذج المشرف المكتشف.",
     "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
     "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
+    "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
     "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
     "get-ahead": "يقارن صقر طرق HTTP المعلنة في الصفحة ورؤوس استجابتها؛ لن يجرّب مسارات غير مرتبطة.",
 }
@@ -1342,7 +1343,7 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
     if slug == "robots":
         extra_paths = ["/robots.txt"]
     elif slug == "scavenger-hunt":
-        extra_paths = ["/robots.txt", "/.htaccess", "/.DS_Store"]
+        extra_paths = ["/robots.txt"]
     queue = _page_resources(recon["html"], origin)
     visited = set()
     while queue and len(visited) < 16:
@@ -1408,6 +1409,31 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
                 res["discovered"]["resources_checked"].append(path)
             except (OSError, http.client.HTTPException, ValueError):
                 continue
+
+    if slug == "scavenger-hunt":
+        # Let the challenge's own wording disclose the two special files.
+        clue_text = "\n".join(body for _label, body in resources)
+        disclosed_special = []
+        if re.search(r"apache.{0,160}\baccess\b|\baccess\b.{0,160}apache", clue_text, re.I | re.S):
+            disclosed_special.append(("/.htaccess", "اتباع قرينة Apache وكلمة Access الواردة في الملفات المكتشفة."))
+        for path, note in disclosed_special:
+            try:
+                rr = client.request("GET", urljoin(origin, path), max_body=MAX_BODY)
+                record(rr, [note])
+                resources.append((path, rr["body"]))
+                res["discovered"]["resources_checked"].append(path)
+            except (OSError, http.client.HTTPException, ValueError):
+                continue
+        clue_text = "\n".join(body for _label, body in resources).lower()
+        if "mac" in clue_text and "store" in clue_text:
+            path = "/.DS_Store"
+            try:
+                rr = client.request("GET", urljoin(origin, path), max_body=MAX_BODY)
+                record(rr, ["اتباع قرينة Mac وStore التي ظهرت في .htaccess."])
+                resources.append((path, rr["body"]))
+                res["discovered"]["resources_checked"].append(path)
+            except (OSError, http.client.HTTPException, ValueError):
+                pass
 
     if slug == "cookies-2021":
         # This challenge explicitly maps the `name` cookie to a small numbered
@@ -1521,7 +1547,34 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
 
     # Search direct content first, then common encoded source literals.
     flag, source = extract_flag(resources + bodies, flag_patterns)
-    if not flag and slug in ("insp3ct0r", "includes", "scavenger-hunt"):
+    if not flag and slug == "scavenger-hunt":
+        # Scavenger Hunt embeds fragments inside explanatory sentences, not as
+        # standalone comments. Read only fetched challenge resources and use
+        # the explicit part numbers to restore the original order.
+        ordered_parts = {}
+        part_sources = {}
+        first_part_rx = re.compile(
+            r"\b(?:here['’]s\s+)?the\s+first\s+part\s+of\s+the\s+flag\s*:\s*([A-Za-z0-9_{}]+)", re.I)
+        numbered_part_rx = re.compile(r"\bpart\s*(\d+)\s*:\s*([A-Za-z0-9_{}]+)", re.I)
+        for label, body in resources:
+            text = html_lib.unescape(body)
+            for match in first_part_rx.finditer(text):
+                ordered_parts[1] = match.group(1)
+                part_sources[1] = label
+            for match in numbered_part_rx.finditer(text):
+                number = int(match.group(1))
+                if 1 < number < 16:
+                    ordered_parts[number] = match.group(2)
+                    part_sources[number] = label
+        if len(ordered_parts) >= 2 and 1 in ordered_parts:
+            last_part = max(ordered_parts)
+            if all(number in ordered_parts for number in range(1, last_part + 1)):
+                joined = "".join(ordered_parts[number] for number in range(1, last_part + 1))
+                flag, source = extract_flag([("Scavenger Hunt ordered parts", joined)], flag_patterns)
+                if flag:
+                    res["discovered"]["flag_fragment_sources"] = [part_sources[n] for n in range(1, last_part + 1)]
+
+    if not flag and slug in ("insp3ct0r", "includes"):
         # Multi-part picoCTF flags are deliberately placed in source comments.
         # Join only flag-shaped comment payloads, never whole CSS/JS documents
         # (which can turn a selector or function body into a false flag).
