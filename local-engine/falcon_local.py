@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.8"\nFALCON_HOME=Path(r"C:\\Falcon")\nTEMP_ROOT=FALCON_HOME/"temp"\nTEMP_ROOT.mkdir(parents=True,exist_ok=True)
+HOST="127.0.0.1"; PORT=8765; VERSION="1.9"\nFALCON_HOME=Path(r"C:\\Falcon")\nTEMP_ROOT=FALCON_HOME/"temp"\nTEMP_ROOT.mkdir(parents=True,exist_ok=True)
 WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
@@ -170,8 +170,10 @@ class H(BaseHTTPRequestHandler):
                 years=[int(x[:4]) for x in macb if len(x)>=5 and x[:4].isdigit() and x[4]=="-"]
                 normal_year=max(years) if years else datetime.now().year
                 old_anomalies=[x for x in macb if len(x)>=5 and x[:4].isdigit() and x[4]=="-" and int(x[:4]) < normal_year-5]
-                keys=("flag","secret","anti","wipe","shred","tmp","home/","root/","bash","history")
-                evidence=[x for x in recent if any(k in x.lower() for k in keys)]
+                keys=("flag","secret","anti","wipe","shred","tmp","home/","root/","bash","history","ctf-player","code","killer")
+                # Search the full timeline, not only the newest 120 entries.
+                evidence=[x for x in macb if any(k in x.lower() for k in keys)]
+                evidence.sort(key=lambda x: (0 if any(k in x.lower() for k in ("flag","secret","killer","ctf-player","/home/","/root/")) else 1, x))
                 # Also inspect tiny, very recent regular files: anti-forensic actions often leave a nearby clue.
                 tiny=[]
                 for x in recent[-60:]:
@@ -186,8 +188,9 @@ class H(BaseHTTPRequestHandler):
                         m=re.search(r"macb\s+\d+\s+([^\s]+)\s+\S+\s+(.+)$",line)
                         if not m: continue
                         inode,name2=m.group(1),m.group(2)
-                        if not re.search(r"\s+d/d",line) and not name2.endswith("/"):
-                            pass
+                        # icat extracts regular file content; never feed directory metadata to it.
+                        if re.search(r"\s+d/d",line) or name2.endswith("/"):
+                            continue
                         try:
                             icat_args=[icat]
                             if chosen_offset: icat_args += ["-o",str(chosen_offset)]
@@ -211,7 +214,7 @@ class H(BaseHTTPRequestHandler):
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
-                  "filesystem_offset":chosen_offset,"partition_attempts":attempts,"recent":recent,"evidence":evidence[-40:],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
+                  "filesystem_offset":chosen_offset,"partition_attempts":attempts,"recent":recent,"evidence":evidence[:80],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
             except subprocess.TimeoutExpired: return reply(self,504,{"ok":False,"error":"Timeline analysis timed out"})
             except Exception as e: return reply(self,500,{"ok":False,"error":"Timeline analysis failed","message":str(e)[:500]})
 
