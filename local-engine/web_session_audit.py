@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.14.0"
+__version__ = "2.15.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1070,7 +1070,7 @@ _STATIC_GUIDANCE = {
     "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
     "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
     "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
-    "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
+    "logon": "يسجل صقر الدخول من النموذج الظاهر، ثم يغيّر كوكي admin إلى True ويعيد تحميل الصفحة لقراءة العلم. يوضح ذلك خطورة الاعتماد على كوكي قابلة للتعديل من العميل.",
     "get-ahead": "يقرأ صقر مسارات أزرار GET وPOST الظاهرة، ثم يرسل HEAD إلى مسار النموذج نفسه ويفحص رؤوس الاستجابة بحثًا عن العلم.",
     "dont-use-client-side": "يحلل صقر شروط substring الموجودة في JavaScript المضمّن، ويرتب مقاطع كلمة المرور حسب مواقعها لإظهار العلم وشرح أن التحقق يجري في المتصفح.",
 }
@@ -1588,12 +1588,17 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
                         resources.append(("logon landing page", landing["body"]))
             except (OSError, http.client.HTTPException, ValueError):
                 pass
-        role_cookie = next((n for n in client.cookies if n.lower() in {"admin", "role", "is_admin"}), None)
-        if role_cookie or re.search(r"\b(admin|role)\b.{0,50}(cookie|document\.cookie)", recon["html"], re.I | re.S):
-            client.cookies[role_cookie or "admin"] = "True"
+        # The point of this named challenge is a client-controlled admin
+        # cookie. The server may set admin=False on the POST, but some clones
+        # omit that header; in either case, change the challenge's documented
+        # cookie and reload the disclosed homepage once.
+        if login_form:
+            role_cookie = next((n for n in client.cookies if n.lower() in {"admin", "role", "is_admin"}), None)
+            admin_cookie = role_cookie or "admin"
+            client.cookies[admin_cookie] = "True"
             role = client.request("GET", origin)
-            record(role, ["اختبار كوكي الدور الموثق في تحدي logon ثم قراءة الصفحة الرئيسية."])
-            resources.append(("logon role-cookie response", role["body"]))
+            record(role, [f"تعيين كوكي «{admin_cookie}=True» في تحدي logon المحدد، ثم إعادة تحميل الصفحة الرئيسية."])
+            resources.append(("logon admin-cookie response", role["body"]))
 
     # Cookie-based teaching challenges: decode only cookies received from this site.
     decoded_cookies = []

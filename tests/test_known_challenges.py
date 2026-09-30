@@ -131,6 +131,30 @@ if (checkpass.substring(split*4, split*5) == 'ust_') {}
         self.end_headers(); self.wfile.write(body)
     def log_message(self, *args): pass
 
+LOGON_FLAG = "academy{logon_admin_cookie_verified}"
+
+class LogonHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        cookie = self.headers.get("Cookie", "")
+        if self.path == "/" and "admin=True" in cookie:
+            body = ("<p>" + LOGON_FLAG + "</p>").encode()
+        elif self.path == "/":
+            body = b'<form action="/login" method="POST"><input name="username"><input name="password"></form><p>No flag for you</p>'
+        else:
+            body = b"not found"
+        self.send_response(200 if self.path == "/" else 404)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0")); self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Set-Cookie", "admin=False; Path=/")
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+    def log_message(self, *args): pass
+
 
 def test_webdecode_linked_assets():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
@@ -222,6 +246,18 @@ def test_dont_use_client_side_reassembles_substring_checks():
     assert result["flag_source"] == "client-side substring checks", result
     assert result["discovered"]["client_side_check_segments"] == 7, result
 
+def test_logon_changes_admin_cookie_and_reloads_homepage():
+    srv = HTTPServer(("127.0.0.1", 0), LogonHandler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True); thread.start()
+    try:
+        result = wsa.run_audit(f"http://127.0.0.1:{srv.server_port}/", challenge_text="## logon\nWeb ExploitationEasy")
+    finally:
+        srv.shutdown(); thread.join(timeout=2); srv.server_close()
+    assert result["recognized"] and result["analyzer"] == "logon", result
+    assert result["success"] and result["flag"] == LOGON_FLAG, result
+    assert [step["method"] for step in result["steps"]] == ["GET", "POST", "GET"], result
+    assert result["steps"][2]["request_cookies"].get("admin") == "…", result
+
 if __name__ == "__main__":
     test_webdecode_linked_assets()
     test_css_rule_is_not_misreported_as_flag()
@@ -231,4 +267,5 @@ if __name__ == "__main__":
     test_scavenger_hunt_reconstructs_numbered_parts_from_discovered_files()
     test_get_ahead_uses_head_on_form_action_and_reads_headers()
     test_dont_use_client_side_reassembles_substring_checks()
+    test_logon_changes_admin_cookie_and_reloads_homepage()
     print("known challenge tests passed")
