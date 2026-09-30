@@ -2,11 +2,14 @@
 'use strict';
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 var prev=window.FalconRogueTowerRun||window.FalconSmartRun;
-window.FalconWebSessionRun=async function(){
+function challengeUrl(){
  var input=document.getElementById('text'),text=(input&&input.value||'').trim();
- if(!/^https?:\/\/[^\s]+$/i.test(text))return prev?prev():false;
- var u;try{u=new URL(text);}catch(_){return prev?prev():false;}
- if(!u.hostname.endsWith('.cylabacademy.net'))return prev?prev():false;
+ var matches=text.match(/https?:\/\/[^\s<>\]"')]+/gi)||[];
+ for(var i=0;i<matches.length;i++){try{var u=new URL(matches[i]);if(u.hostname.endsWith('.cylabacademy.net'))return u.href;}catch(_){}}
+ return null;
+}
+window.FalconWebSessionRun=async function(){
+ var text=challengeUrl();if(!text)return prev?prev():false;
  var r=document.getElementById('result');r.classList.remove('hidden');r.innerHTML='<div class="finding"><h3>🍪 فحص الجلسات</h3><p>جارٍ قراءة استجابة الموقع وكوكيز الجلسة عبر المحرك المحلي v2.1.0…</p></div>';
  try{
  var base=location.hostname==='127.0.0.1'||location.hostname==='localhost'?'':'http://127.0.0.1:8765';
@@ -16,4 +19,10 @@ window.FalconWebSessionRun=async function(){
  }catch(e){r.innerHTML='<div class="finding warn"><h3>🍪 تعذر فحص الجلسات</h3><p>'+esc(e.message)+'</p><p>شغّل المحرك v2.1.0 وتأكد أن نسخة التحدي لا تزال فعالة.</p></div>';}
  r.scrollIntoView({behavior:'smooth'});return false;
 };
+window.FalconSmartRun=window.FalconWebSessionRun;
+var solve=document.getElementById('solve');
+if(solve)solve.addEventListener('click',function(e){
+ if(!challengeUrl())return;
+ e.preventDefault();e.stopImmediatePropagation();window.FalconWebSessionRun();
+},true);
 })();
