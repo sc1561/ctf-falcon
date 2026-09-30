@@ -479,6 +479,9 @@
     return artifactFallback;
   }
   global.FalconWebSessionRun = async function() {
+    // Route the picoCTF No FA prompt to its artifact guidance before generic
+    // web-session auditing sees the instance URL as the challenge target.
+    if (global.FalconNoFaRun && global.FalconNoFaRun()) return false;
     var url=challengeUrl();
     if(!url) return previous ? previous() : false;
     if(busy) return false;

@@ -9,7 +9,8 @@ class FakeElement {
   appendChild(child) { this.children.push(child); return child; }
 }
 const window = {};
-const document = {getElementById: () => null, createElement: (tag) => new FakeElement(tag)};
+const challengeInput = {value: ""};
+const document = {getElementById: (id) => id === "text" ? challengeInput : null, createElement: (tag) => new FakeElement(tag)};
 vm.runInNewContext(fs.readFileSync("frontend/js/web-sessions.js", "utf8"), {
   window,
   document,
@@ -56,4 +57,10 @@ const guidance = window.FalconWebSessions.renderArtifactGuidance(pastedNoFa);
 assert.match(guidance.textContent, /C:\\Falcon\\analysis/);
 assert.match(guidance.textContent, /app\.py/);
 assert.match(guidance.textContent, /users\.db/);
-console.log("web-session artifact guidance tests passed");
+let noFaDispatched = false;
+challengeInput.value = "No FA\nWeb Exploitation\nInstance: http://xebec.cylabacademy.net:29016/\nThe leaked data can be found here.";
+window.FalconNoFaRun = () => { noFaDispatched = true; return true; };
+window.FalconWebSessionRun().then(() => {
+  assert.equal(noFaDispatched, true, "No FA is routed before its instance URL is treated as a session audit target");
+  console.log("web-session artifact guidance tests passed");
+}).catch((error) => { console.error(error); process.exitCode = 1; });

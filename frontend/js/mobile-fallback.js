@@ -532,6 +532,7 @@ window.FalconSmartRun=function(){
  if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
  if(looksLikeLog(raw)){result.className='result';return analyzeLogs(raw,'pasted-log',result);} return runText(raw,true,'المحلل الذكي');
 };
+window.FalconNoFaRun=function(){var ta=byId('text'),raw=String(ta&&ta.value||'').trim();if(!isNoFaChallenge(raw))return false;analyzeText(raw,true,'المحلل الذكي');return true;};
 window.FalconRun=function(deep){
  var ta=byId('text'),fi=byId('file'),result=byId('result');
  if(fi&&fi.files&&fi.files.length){
