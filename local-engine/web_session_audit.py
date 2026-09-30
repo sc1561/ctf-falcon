@@ -64,7 +64,7 @@ class HttpClient:
     - يحفظ Set-Cookie متعددة ويطبّق دلالات الحذف بشكل صحيح.
     """
 
-    def __init__(self, timeout=DEFAULT_TIMEOUT, insecure_tls=True):
+    def __init__(self, timeout=DEFAULT_TIMEOUT, insecure_tls=False):
         self.timeout = timeout
         self.insecure_tls = insecure_tls
         self.cookies: dict[str, str] = {}
@@ -99,6 +99,12 @@ class HttpClient:
         scheme = parts.scheme or "http"
         host = parts.hostname
         port = parts.port or (443 if scheme == "https" else 80)
+        origin=(scheme,host,port)
+        if parts.username or parts.password or scheme not in ("http","https"):
+            raise ValueError("Invalid challenge URL")
+        if hasattr(self,"origin") and self.origin!=origin:
+            raise ValueError("Cross-origin challenge request blocked")
+        self.origin=origin
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
@@ -129,7 +135,9 @@ class HttpClient:
             conn.request(method, path, body=body, headers=headers)
             resp = conn.getresponse()
             raw_headers = resp.getheaders()          # يحفظ Set-Cookie المتعددة
-            raw_body = resp.read()
+            raw_body = resp.read(2*1024*1024+1)
+            if len(raw_body)>2*1024*1024:
+                raise ValueError("Response exceeds 2 MB")
             status = resp.status
             reason = resp.reason
         finally:
@@ -213,7 +221,7 @@ def analyze_set_cookie(raw: str) -> dict:
             expires_dt = parsedate_to_datetime(str(attrs["expires"]))
             if expires_dt.tzinfo is None:
                 expires_dt = expires_dt.replace(tzinfo=timezone.utc)
-            if intent != "deletion":
+            if intent != "deletion" and lifetime_seconds is None:
                 if expires_dt <= now:
                     intent = "deletion"
                     notes.append("Expires في الماضي: الكوكي منتهية/محذوفة.")
@@ -359,7 +367,7 @@ def extract_flag(bodies: list[tuple[str, str]], patterns: list[str]) -> tuple[st
 def run_audit(url: str,
               flag_patterns: list[str] | None = None,
               timeout: int = DEFAULT_TIMEOUT,
-              insecure_tls: bool = True,
+              insecure_tls: bool = False,
               demonstrate_register_requirement: bool = True,
               username: str | None = None,
               password: str | None = None) -> dict:

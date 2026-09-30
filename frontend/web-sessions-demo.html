@@ -1,3 +1,46 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CTF Falcon — Web Sessions (معاينة)</title>
+<style>
+  :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  html,body{margin:0;background:#07111f;color:#e6f0fa;
+    font-family:"Segoe UI",Tahoma,system-ui,sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:18px}
+  .top{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+    border:1px solid #1e3a57;background:#0e1c2e;border-radius:12px;padding:12px;margin-bottom:6px}
+  .top label{font-size:13px;color:#8aa0b8}
+  .top input{background:#12243a;color:#e6f0fa;border:1px solid #1e3a57;border-radius:8px;
+    padding:8px 10px;direction:ltr;text-align:left}
+  .top button{background:transparent;color:#e6f0fa;border:1px solid #1e3a57;border-radius:8px;
+    padding:8px 14px;cursor:pointer;font-weight:700}
+  .top button.on{background:#39a0ff;color:#04121f;border-color:#39a0ff}
+  h1{font-size:20px;margin:4px 0 2px} .sub{color:#8aa0b8;font-size:13px;margin:0 0 12px}
+  .hint{color:#8aa0b8;font-size:12px;margin:8px 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛡️ CTF Falcon — Web Sessions</h1>
+  <p class="sub">معاينة أداة تدقيق الجلسات (Old Sessions). العلم في وضع العيّنة وهميّ للعرض فقط.</p>
+
+  <div class="top">
+    <label>الوضع:</label>
+    <button id="mDemo" class="on">👁️ عيّنة (للعرض)</button>
+    <button id="mLive">🔌 مباشر (المحرك المحلي)</button>
+    <span style="flex:1"></span>
+    <label>عنوان المحرك:</label>
+    <input id="engine" value="http://127.0.0.1:8765" size="22">
+  </div>
+  <p class="hint">الوضع المباشر يعمل عند فتح هذه الصفحة بجوار محرك يعمل (Falcon.bat). في المعاينة المستضافة يُستخدم وضع العيّنة.</p>
+
+  <div id="panel"></div>
+  <div id="sample"></div>
+</div>
+
+<script>
 /* ==========================================================================
  * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v139
  * --------------------------------------------------------------------------
@@ -159,8 +202,6 @@
 
   // ---- عرض النتيجة كاملةً ------------------------------------------------ //
   function renderResult(container, res) {
-    injectCSS();
-    container.classList.add("fws");
     container.innerHTML = "";
     container.appendChild(renderFlag(res));
 
@@ -338,41 +379,30 @@
     mount: mount, renderResult: renderResult, audit: audit,
     DEFAULT_ENGINE: DEFAULT_ENGINE, SAMPLE: SAMPLE
   };
-
-  var previous = global.FalconRogueTowerRun || global.FalconSmartRun;
-  var busy = false;
-  function challengeUrl() {
-    var input = document.getElementById('text');
-    var matches = ((input && input.value) || '').match(/https?:\/\/[^\s<>\]"')]+/gi) || [];
-    for (var i=0; i<matches.length; i++) {
-      try { var u=new URL(matches[i]); if(u.hostname.endsWith('.cylabacademy.net')) return u.href; } catch (_) {}
-    }
-    return null;
-  }
-  global.FalconWebSessionRun = async function() {
-    var url=challengeUrl();
-    if(!url) return previous ? previous() : false;
-    if(busy) return false;
-    busy=true;
-    var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🍪 جارٍ تحليل Old Sessions عبر المحرك المحلي v2.2.0…';
-    try {
-      var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
-      var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
-      if(!health.version||Number(health.version.split('.')[0])<2||
-         (Number(health.version.split('.')[0])===2&&Number(health.version.split('.')[1])<2))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.2.0 ثم أعد تشغيل المحرك.');
-      var res=await audit(engine,url,{});
-      if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك لا تتوافق مع محلل Old Sessions.');
-      renderResult(out,res);
-    } catch(e) { out.textContent='تعذر تحليل التحدي: '+e.message; }
-    finally {busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});}
-    return false;
-  };
-  global.FalconSmartRun=global.FalconWebSessionRun;
-  var solve=document.getElementById('solve');
-  if(solve) solve.addEventListener('click',function(e){
-    if(!challengeUrl())return;
-    e.preventDefault();e.stopImmediatePropagation();global.FalconWebSessionRun();
-  },true);
 })(window);
+
+</script>
+<script>
+(function(){
+  var mDemo=document.getElementById("mDemo"), mLive=document.getElementById("mLive");
+  var engine=document.getElementById("engine");
+  var panel=document.getElementById("panel"), sample=document.getElementById("sample");
+
+  function showDemo(){
+    mDemo.classList.add("on"); mLive.classList.remove("on");
+    panel.innerHTML="";
+    sample.className="fws";
+    FalconWebSessions.renderResult(sample, FalconWebSessions.SAMPLE);
+  }
+  function showLive(){
+    mLive.classList.add("on"); mDemo.classList.remove("on");
+    sample.innerHTML="";
+    FalconWebSessions.mount(panel, { engine: engine.value });
+  }
+  mDemo.onclick=showDemo; mLive.onclick=showLive;
+  engine.addEventListener("change", function(){ if(mLive.classList.contains("on")) showLive(); });
+  showDemo();
+})();
+</script>
+</body>
+</html>
