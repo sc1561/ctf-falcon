@@ -243,6 +243,13 @@ def test_insp3ct0r_reassembles_labeled_thirds_from_html_css_js():
     assert result["flag_source"] == "Insp3ct0r ordered comment fragments", result
     assert [step["url"].rsplit("/", 1)[-1] for step in result["steps"]] == ["", "mycss.css", "myjs.js"], result
 
+def test_no_fa_database_link_is_not_requested_as_a_webpage():
+    result = wsa.run_audit("http://127.0.0.1:1/users.db", challenge_text="## No FA\nWeb ExploitationMedium")
+    assert result["recognized"] and result["analyzer"] == "no-fa", result
+    assert result["steps"] == [], result
+    assert "ليس عنوان موقع الـInstance" in " ".join(result["explanation_ar"]), result
+    assert "لم يبدأ تحليل قاعدة البيانات" in " ".join(result["warnings"]), result
+
 
 def test_challenge_detection_is_specific():
     assert wsa.detect_named_challenge("## WebDecode\nWeb ExploitationEasy") == ("WebDecode", "webdecode")
@@ -336,6 +343,7 @@ if __name__ == "__main__":
     test_cookies_numeric_range_is_bounded_and_stops_on_flag()
     test_scavenger_hunt_reconstructs_numbered_parts_from_discovered_files()
     test_insp3ct0r_reassembles_labeled_thirds_from_html_css_js()
+    test_no_fa_database_link_is_not_requested_as_a_webpage()
     test_get_ahead_uses_head_on_form_action_and_reads_headers()
     test_dont_use_client_side_reassembles_substring_checks()
     test_logon_changes_admin_cookie_and_reloads_homepage()

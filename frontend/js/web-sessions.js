@@ -393,10 +393,19 @@
   function challengeUrl() {
     var input = document.getElementById('text');
     var matches = ((input && input.value) || '').match(/https?:\/\/[^\s<>\]"')]+/gi) || [];
+    var artifactFallback = null;
     for (var i=0; i<matches.length; i++) {
-      try { var u=new URL(matches[i]); if(u.hostname.endsWith('.cylabacademy.net')||u.hostname.endsWith('.cylabacademy.org')) return u.href; } catch (_) {}
+      try {
+        var u = new URL(matches[i]);
+        if (!(u.hostname.endsWith('.cylabacademy.net') || u.hostname.endsWith('.cylabacademy.org'))) continue;
+        if (u.hostname.toLowerCase().startsWith('challenge-files.')) {
+          if (!artifactFallback) artifactFallback = u.href;
+          continue;
+        }
+        return u.href;
+      } catch (_) {}
     }
-    return null;
+    return artifactFallback;
   }
   global.FalconWebSessionRun = async function() {
     var url=challengeUrl();
@@ -404,13 +413,13 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.18.0…';
+    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.19.0…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
-      if(version[0]<2||(version[0]===2&&version[1]<17))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.18.0 ثم أعد تشغيل المحرك (يجمع أجزاء العلم المعلّمة 1/3 و2/3 و3/3 في Insp3ct0r).');
+      if(version[0]<2||(version[0]===2&&version[1]<19))
+        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.19.0 ثم أعد تشغيل المحرك.');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');

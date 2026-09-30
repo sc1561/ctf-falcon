@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.18.0"
+__version__ = "2.19.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1061,7 +1061,7 @@ _STATIC_CHALLENGES = {
 
 _STATIC_GUIDANCE = {
     "intro-to-burp": "يسجل صقر حسابًا تجريبيًا من النموذج المكتشف. في مرحلة 2FA يرسل POST فارغًا بلا حقل otp، ثم يقرأ العلم من الاستجابة؛ هذا يشرح أثر التحقق من وجود الحقل بدل التحقق من الرمز.",
-    "no-fa": "يحتاج هذا التحدي ملف users.db وقائمة كلمات مرور محلية. افحص تجزئة SHA-256 دون إرسال محاولات دخول عشوائية؛ ثم راجع جلسة Flask ومرحلة 2FA.",
+    "no-fa": "يحتاج هذا التحدي عنوان Instance الحي وملف users.db. رابط users.db ملف بيانات وليس صفحة ويب؛ تُحلّل التجزئات محليًا بقائمة rockyou، ثم يُختبر تسجيل الدخول ومرحلة 2FA على الـInstance فقط.",
     "hashgate": "تُظهر الصفحة معرّف المستخدم؛ افحص تحقق الخادم من المعرّف المجزأ، ثم اختبر معرّفات الموظفين المحدودة التي يثبتها وصف التحدي.",
     "credential-stuffing": "هذا تحدٍ عبر TCP وملف بيانات اعتماد منفصل، وليس صفحة HTTP. شغّل المحلل الطرفي على ملف creds-dump المرفق مع تأخير وحد أقصى للمحاولات ضمن خدمة التحدي فقط.",
     "secret-box": "افحص مصدر التطبيق المرفق. مسار إنشاء السر يضمّن المحتوى في SQL؛ أنشئ حسابًا تدريبيًا واستخدم ثغرة المسار لنسخ سر المشرف، ثم اقرأ السر بحسابك.",
@@ -1796,6 +1796,24 @@ def run_audit(url: str,
         url = "http://" + url
     p = urlsplit(url)
     origin = f"{p.scheme}://{p.netloc}/"
+
+    # The No FA prompt includes downloadable app.py/users.db artifacts as
+    # well as a separate running instance. Never send the database file URL
+    # through the HTML reconnaissance path; explain the input mismatch first.
+    named_input = detect_named_challenge(challenge_text)
+    path_lower = (p.path or "").lower()
+    is_artifact_url = (p.hostname or "").lower().startswith("challenge-files.") or path_lower.endswith(
+        (".db", ".sqlite", ".sqlite3", ".py", ".tar.gz", ".zip"))
+    if named_input and named_input[1] == "no-fa" and is_artifact_url:
+        res = _base_result(origin, named_input[0], named_input[1], recognized=True)
+        res["discovered"]["artifact_path"] = p.path
+        res["explanation_ar"].append(
+            "الرابط المدخل ملف من ملفات التحدي، وليس عنوان موقع الـInstance؛ لذلك لم يُرسل إليه طلب GET كأنه صفحة ويب.")
+        res["explanation_ar"].append(
+            "الصق رابط الـInstance الحي (xebec...:<port>/) لتحليل الموقع، واحتفظ برابط users.db كملف بيانات للتحليل المحلي.")
+        res["warnings"].append(
+            "لم يبدأ تحليل قاعدة البيانات: يلزم تنزيل users.db وقائمة كلمات المرور محليًا، ثم تشغيل مسار No FA على عنوان الـInstance.")
+        return res
 
     opts = {
         "demonstrate_register_requirement": demonstrate_register_requirement,
