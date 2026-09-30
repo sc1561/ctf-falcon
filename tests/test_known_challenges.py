@@ -69,6 +69,23 @@ class IncludesHandler(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(body)
     def log_message(self, *args): pass
 
+INSPECTOR_FLAG = "academy{insp3ct0r_1n_th3_c0mm3nts_4r3_u53ful_12345678}"
+
+class InspectorHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        pages = {
+            "/": (b'<!-- Html is neat. Anyways have 1/3 of the flag: academy{insp3ct0r_1n_th3_ -->'
+                  b'<link rel="stylesheet" href="/mycss.css"><script src="/myjs.js"></script>', "text/html"),
+            "/mycss.css": (b'/* CSS comment. 2/3 of the flag: c0mm3nts_4r3_ */', "text/css"),
+            "/myjs.js": (b'// JavaScript comment. 3/3 of the flag: u53ful_12345678}', "application/javascript"),
+        }
+        body, ctype = pages.get(self.path, (b"not found", "text/plain"))
+        self.send_response(200 if self.path in pages else 404)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def log_message(self, *args): pass
+
 SCAVENGER_FLAG = "academy{th4ts_4_l0t_0f_pl4c3s_2_lO0k_f7ce8828}"
 
 class ScavengerHandler(BaseHTTPRequestHandler):
@@ -214,6 +231,18 @@ def test_includes_reconstructs_only_comment_fragments():
     assert result["success"] and result["flag"] == "academy{1nclu51v17y_1of2_f7w_2of2_64d6df37}", result
     assert result["flag_source"] == "includes comment fragments", result
 
+def test_insp3ct0r_reassembles_labeled_thirds_from_html_css_js():
+    srv = HTTPServer(("127.0.0.1", 0), InspectorHandler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True); thread.start()
+    try:
+        result = wsa.run_audit(f"http://127.0.0.1:{srv.server_port}/", challenge_text="## Insp3ct0r\nWeb ExploitationEasy")
+    finally:
+        srv.shutdown(); thread.join(timeout=2); srv.server_close()
+    assert result["recognized"] and result["analyzer"] == "insp3ct0r", result
+    assert result["success"] and result["flag"] == INSPECTOR_FLAG, result
+    assert result["flag_source"] == "Insp3ct0r ordered comment fragments", result
+    assert [step["url"].rsplit("/", 1)[-1] for step in result["steps"]] == ["", "mycss.css", "myjs.js"], result
+
 
 def test_challenge_detection_is_specific():
     assert wsa.detect_named_challenge("## WebDecode\nWeb ExploitationEasy") == ("WebDecode", "webdecode")
@@ -306,6 +335,7 @@ if __name__ == "__main__":
     test_challenge_detection_is_specific()
     test_cookies_numeric_range_is_bounded_and_stops_on_flag()
     test_scavenger_hunt_reconstructs_numbered_parts_from_discovered_files()
+    test_insp3ct0r_reassembles_labeled_thirds_from_html_css_js()
     test_get_ahead_uses_head_on_form_action_and_reads_headers()
     test_dont_use_client_side_reassembles_substring_checks()
     test_logon_changes_admin_cookie_and_reloads_homepage()

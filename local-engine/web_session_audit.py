@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.17.0"
+__version__ = "2.18.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1683,6 +1683,26 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
         # Join only flag-shaped comment payloads, never whole CSS/JS documents
         # (which can turn a selector or function body into a false flag).
         comment_parts = []
+        if slug == "insp3ct0r":
+            # Insp3ct0r labels each source comment with "1/3 of the flag",
+            # "2/3 ...", and "3/3 ...". Extract those labeled fragments
+            # instead of treating the whole explanatory comment as a token.
+            numbered_fragments = {}
+            fragment_sources = {}
+            marker_rx = re.compile(
+                r"\b([1-3])\s*/\s*3\s+of\s+the\s+flag\s*[:=]\s*([^\s<>\"']+)", re.I)
+            for label, body in resources:
+                for match in marker_rx.finditer(html_lib.unescape(body)):
+                    number = int(match.group(1))
+                    fragment = match.group(2).rstrip(",.;")
+                    if fragment:
+                        numbered_fragments[number] = fragment
+                        fragment_sources[number] = label
+            if all(number in numbered_fragments for number in (1, 2, 3)):
+                joined = "".join(numbered_fragments[number] for number in (1, 2, 3))
+                flag, source = extract_flag([("Insp3ct0r ordered comment fragments", joined)], flag_patterns)
+                if flag:
+                    res["discovered"]["flag_fragment_sources"] = [fragment_sources[n] for n in (1, 2, 3)]
         for label, body in resources:
             comments = [m.group(1) for m in _COMMENT_RE.finditer(body)]
             comments.extend(m.group(1) for m in re.finditer(r"/\*(.*?)\*/", body, re.S))
@@ -1691,10 +1711,11 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
                 part = html_lib.unescape(comment).strip()
                 if len(part) >= 8 and re.fullmatch(r"[A-Za-z0-9_{}]+", part) and ("_" in part or "{" in part):
                     comment_parts.append((label, part))
-        joined = "".join(part for _, part in comment_parts)
-        flag, source = extract_flag([(f"{slug} comment fragments", joined)], flag_patterns)
-        if flag:
-            res["discovered"]["flag_fragment_sources"] = [label for label, _ in comment_parts]
+        if not flag:
+            joined = "".join(part for _, part in comment_parts)
+            flag, source = extract_flag([(f"{slug} comment fragments", joined)], flag_patterns)
+            if flag:
+                res["discovered"]["flag_fragment_sources"] = [label for label, _ in comment_parts]
     if not flag and slug == "webdecode":
         import base64
         encoded_candidates = re.findall(r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9_+/=-]{20,4096})(?![A-Za-z0-9+/=_-])",
