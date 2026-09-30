@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.10.0"
+__version__ = "2.11.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1065,7 +1065,7 @@ _STATIC_GUIDANCE = {
     "bookmarklet": "ابحث عن bookmarklet في المصدر؛ اقرأ دالة فك النص ونفّذ تحويلها محليًا على السلسلة المضمّنة.",
     "local-authority": "يتبع صقر مسار النموذج إلى login.php، ويقرأ secure.js المرتبط، ثم يستخدم الاعتمادين الموجودين فيه لإكمال نموذج المشرف المكتشف.",
     "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
-    "cookies-2021": "يعتمد الحل على قيمة كوكي name المتغيرة؛ افحص القيمة الحالية ثم غيّر الرقم يدويًا ضمن هذا التحدي، وسيشرح صقر استجابة كل طلب.",
+    "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
     "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
     "get-ahead": "يقارن صقر طرق HTTP المعلنة في الصفحة ورؤوس استجابتها؛ لن يجرّب مسارات غير مرتبطة.",
 }
@@ -1410,18 +1410,39 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
                 continue
 
     if slug == "cookies-2021":
-        # The challenge explicitly maps the `name` cookie to a small numbered
-        # catalog. Bound enumeration to 0..32 and stop at the first flag.
+        # This challenge explicitly maps the `name` cookie to a small numbered
+        # catalog. The app redirects between / and /check, so follow only its
+        # same-origin GET redirects and guard against redirect loops per value.
+        check_url = urljoin(origin, "/check")
         for index in range(33):
             client.cookies["name"] = str(index)
             try:
-                rr = client.request("GET", origin, max_body=MAX_BODY)
-                record(rr, [f"اختبار قيمة الكوكي الرقمية {index} في تحدي Cookies المحدد."])
-                resources.append((f"Cookies index {index}", rr["body"]))
-                if extract_flag([("candidate response", rr["body"])], flag_patterns)[0]:
+                # /check is explicitly observed in this analyzer's challenge
+                # flow; start there, then follow the redirect(s) the app gives.
+                current = check_url
+                seen = set()
+                for hop in range(3):
+                    if current in seen:
+                        break
+                    seen.add(current)
+                    rr = client.request("GET", current, max_body=MAX_BODY)
+                    record(rr, [f"اختبار قيمة الكوكي الرقمية {index} في تحدي Cookies المحدد." if hop == 0 else
+                                "اتباع تحويل GET معلَن داخل أصل التحدي."])
+                    resources.append((f"Cookies index {index} hop {hop + 1}", rr["body"]))
+                    if extract_flag([(f"candidate response {index}", rr["body"])], flag_patterns)[0]:
+                        break
+                    if rr["status"] not in (301, 302, 303, 307, 308) or not rr.get("location"):
+                        break
+                    next_url = urljoin(current, rr["location"])
+                    old, new = urlsplit(current), urlsplit(next_url)
+                    if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+                        break
+                    current = next_url
+                if extract_flag(resources[-3:], flag_patterns)[0]:
                     break
             except (OSError, http.client.HTTPException, ValueError):
-                break
+                continue
+        res["explanation_ar"].append("يتبع صقر تحويلات GET التي يرسلها الموقع بين / و/check، ويوقف تجربة القيم فور ظهور العلم أو استنفاد المجال المحدود.")
 
     if slug == "get-ahead":
         try:

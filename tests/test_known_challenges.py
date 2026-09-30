@@ -34,10 +34,17 @@ class Handler(BaseHTTPRequestHandler):
 class CookieHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         cookie = self.headers.get("Cookie", "")
-        body = b'<p>Cookie challenge</p>'
-        if "name=7" in cookie:
-            body = b'<p>picoCTF{numbered_cookie_verified}</p>'
-        self.send_response(200)
+        if self.path == "/check" and "name=7" in cookie:
+            status, location, body = 200, None, b'<p>picoCTF{numbered_cookie_verified}</p>'
+        elif self.path == "/check":
+            status, location, body = 302, "/", b""
+        elif self.path == "/":
+            status, location, body = 302, "/check", b""
+        else:
+            status, location, body = 404, None, b"not found"
+        self.send_response(status)
+        if location:
+            self.send_header("Location", location)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -110,7 +117,9 @@ def test_cookies_numeric_range_is_bounded_and_stops_on_flag():
         thread.join(timeout=2)
         srv.server_close()
     assert result["success"] is True and result["flag"] == "picoCTF{numbered_cookie_verified}", result
-    assert len(result["steps"]) <= 10, len(result["steps"])
+    assert len(result["steps"]) <= 24, len(result["steps"])
+    assert any(step["url"].endswith("/check") for step in result["steps"]), result["steps"]
+    assert any(step["location"] == "/check" for step in result["steps"]), result["steps"]
 
 if __name__ == "__main__":
     test_webdecode_linked_assets()
