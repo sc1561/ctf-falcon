@@ -1,5 +1,5 @@
 /* ==========================================================================
- * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v139
+ * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v146
  * --------------------------------------------------------------------------
  * وحدة واجهة مستقلة تستدعي المحرك المحلي على /web/session-audit وتعرض:
  *   - جدولًا زمنيًا لكل خطوة (الطريقة/المسار/الحالة/التحويل)
@@ -203,6 +203,12 @@
       if (d.dev_header) ul.appendChild(el("li", null, "ترويسة المطوّر: " + d.dev_header.name + ": " + d.dev_header.value));
       if (d.login_path) ul.appendChild(el("li", null, "مسار الدخول: " + d.login_path + (d.response_status ? " (الحالة: " + d.response_status + ")" : "")));
       if (d.email_used) ul.appendChild(el("li", null, "البريد المستخدم: " + d.email_used));
+      // n0s4n1ty 1 upload flow
+      if (d.file_field) ul.appendChild(el("li", null, "حقل الملف المكتشف: " + d.file_field));
+      if (d.upload_status) ul.appendChild(el("li", null, "حالة رفع الملف: HTTP " + d.upload_status));
+      if (d.upload_path) ul.appendChild(el("li", null, "مسار الملف المرفوع: " + d.upload_path));
+      if (d.web_user) ul.appendChild(el("li", null, "مستخدم خادم الويب: " + d.web_user));
+      if (typeof d.sudo_nopasswd === "boolean") ul.appendChild(el("li", null, "sudo بلا كلمة مرور: " + (d.sudo_nopasswd ? "نعم" : "لا")));
       // غير معروف
       if (d.emails && d.emails.length) ul.appendChild(el("li", null, "عناوين بريد في الصفحة: " + d.emails.join(", ")));
       if (d.decoded_comments && d.decoded_comments.length)
