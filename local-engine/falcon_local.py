@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.7"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.8"\nFALCON_HOME=Path(r"C:\\Falcon")\nTEMP_ROOT=FALCON_HOME/"temp"\nTEMP_ROOT.mkdir(parents=True,exist_ok=True)
 WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
@@ -124,7 +124,19 @@ class H(BaseHTTPRequestHandler):
             if not fls: return reply(self,503,{"ok":False,"error":"fls.exe is not installed","need":["fls"]})
             n=int(self.headers.get("Content-Length","0")); name=Path(self.headers.get("X-Filename","timeline.img.gz")).name
             if n<=0 or n>180*1024*1024: return reply(self,413,{"ok":False,"error":"Compressed image too large"})
-            work=Path(tempfile.mkdtemp(prefix="falcon_timeline_")); gz=work/name
+            # Keep all large forensic temporary data under C:\\Falcon, never the Windows temp directory.
+            work=Path(tempfile.mkdtemp(prefix="timeline_",dir=str(TEMP_ROOT))); gz=work/name
+            free=shutil.disk_usage(TEMP_ROOT).free
+            # gzip ISIZE stores the uncompressed size modulo 2^32; useful for normal CTF disk images.
+            expected=0
+            try:
+                if n>=4:
+                    # We do not have the trailer yet, so reserve conservatively before upload.
+                    expected=max(n*8,512*1024*1024)
+            except Exception: expected=max(n*8,512*1024*1024)
+            if free < expected+n:
+                shutil.rmtree(work,ignore_errors=True)
+                return reply(self,507,{"ok":False,"error":"Not enough free disk space","message":"C:\\\\Falcon needs more free space for the compressed upload and extracted disk image.","free_bytes":free,"recommended_free_bytes":expected+n})
             with gz.open("wb") as w:
                 left=n
                 while left:
