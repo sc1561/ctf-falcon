@@ -532,7 +532,27 @@ window.FalconSmartRun=function(){
  if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
  if(looksLikeLog(raw)){result.className='result';return analyzeLogs(raw,'pasted-log',result);} return runText(raw,true,'المحلل الذكي');
 };
-window.FalconNoFaRun=function(){var ta=byId('text'),raw=String(ta&&ta.value||'').trim();if(!isNoFaChallenge(raw))return false;analyzeText(raw,true,'المحلل الذكي');return true;};
+window.FalconNoFaRun=async function(){
+ var ta=byId('text'),raw=String(ta&&ta.value||'').trim();if(!isNoFaChallenge(raw))return false;
+ var result=byId('result'),engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:'http://127.0.0.1:8765';
+ result.className='result';result.innerHTML='<div class="finding">⏳ يفحص Falcon Local Engine الملفين في <code>C:\\Falcon\\analysis</code>…</div>';
+ try{
+  var response=await fetch(engine+'/no-fa/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'});
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  var data=await response.json();if(!data.ok)throw new Error(data.error||'تعذر تحليل الملفين');
+  var fileRows=Object.keys(data.files||{}).map(function(name){var f=data.files[name];return '<li><code>'+esc(name)+'</code>: '+(f.exists?'موجود — '+Number(f.bytes||0).toLocaleString()+' بايت':'غير موجود')+'</li>';}).join('');
+  var notes=(data.source_findings||[]).map(function(x){return ({passwords_sha256_unsalted:'كلمات المرور محفوظة كـ SHA-256 من دون Salt.',otp_stored_in_flask_session:'رمز OTP مخزن داخل جلسة Flask على المتصفح.',four_digit_otp:'رمز OTP مكوّن من أربعة أرقام.',otp_valid_for_120_seconds:'تنتهي صلاحية OTP بعد 120 ثانية.'})[x]||x;});
+  var details='<div class="studentSummary"><h2>🧭 تحليل ملفات No FA</h2><div class="studentCard"><b>1️⃣ فحص الملفات المحلية</b><ul>'+fileRows+'</ul><p>المجلد: <code>'+esc(data.folder||'C:\\Falcon\\analysis')+'</code> — الحسابات: '+Number(data.account_count||0)+'</p></div><div class="studentCard"><b>2️⃣ ماذا كشف التحليل؟</b><p>'+(notes.length?notes.map(esc).join('<br>'):'لم تُكتشف مؤشرات في app.py.')+'</p>'+(data.admin&&data.admin.exists?'<p>حساب admin: موجود — التحقق الثنائي: '+(data.admin.two_fa?'مفعّل':'غير مفعّل')+'.</p>':'<p>حساب admin غير موجود في قاعدة البيانات.</p>')+(data.admin&&data.admin.password_candidate?'<p>تطابق مرشح كلمة المرور مع SHA-256 لحساب admin: <code>'+esc(data.admin.password_candidate)+'</code>.</p>':'<p>لم يُعثر على كلمة مرور مطابقة في المرشحات المضمنة. ضع wordlist باسم rockyou.txt أو passwords.txt في المجلد لإعادة الفحص.</p>')+'</div><div class="studentCard next"><b>3️⃣ الخطوة التالية</b><p>شغّل مثيل التحدي، سجّل الدخول باسم admin، ثم استخرج otp_secret من ملف تعريف ارتباط session عبر أداة تحليل الجلسة أدناه وأدخله قبل انتهاء 120 ثانية.</p></div></div>';
+  result.innerHTML=details;
+  var cookieBox=document.createElement('div');cookieBox.className='finding';
+  var label=document.createElement('label');label.textContent='الصق قيمة ملف تعريف ارتباط session بعد تسجيل الدخول:';
+  var input=document.createElement('input');input.type='text';input.autocomplete='off';input.placeholder='session=.eJw...';input.style.width='100%';
+  var button=document.createElement('button');button.type='button';button.textContent='🔓 اقرأ بيانات جلسة Flask';
+  var output=document.createElement('p');button.onclick=async function(){button.disabled=true;try{var dec=await fetch(engine+'/no-fa/decode-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookie:input.value}),cache:'no-store'}).then(function(r){return r.json();});if(!dec.ok)throw new Error(dec.error||'فشل فك الجلسة');output.textContent=dec.otp_secret?'OTP لحساب '+(dec.username||'غير معروف')+': '+dec.otp_secret+' — صلاحية الرمز 120 ثانية.':'لم يظهر otp_secret في بيانات الجلسة.';}catch(e){output.textContent='تعذر فك الجلسة: '+e.message;}finally{button.disabled=false;}};
+  cookieBox.appendChild(label);cookieBox.appendChild(input);cookieBox.appendChild(button);cookieBox.appendChild(output);result.appendChild(cookieBox);
+ }catch(e){analyzeText(raw,true,'المحلل الذكي');var note=document.createElement('div');note.className='finding warn';note.textContent='لم يتمكن صقر من قراءة المجلد المحلي تلقائيًا ('+e.message+'). حدّث Falcon Local Engine إلى 2.20.0 وشغّله من C:\\Falcon ثم أعد التحليل.';result.appendChild(note);}
+ result.scrollIntoView({behavior:'smooth',block:'start'});return true;
+};
 window.FalconRun=function(deep){
  var ta=byId('text'),fi=byId('file'),result=byId('result');
  if(fi&&fi.files&&fi.files.length){

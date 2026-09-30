@@ -8,11 +8,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.19.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.20.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
-WEB_ROOT=Path(__file__).resolve().parent.parent
+ANALYSIS_ROOT=FALCON_HOME/"analysis"
+ANALYSIS_ROOT.mkdir(parents=True,exist_ok=True)
+ENGINE_DIR=Path(__file__).resolve().parent
+WEB_ROOT=ENGINE_DIR.parent if ENGINE_DIR.name.lower()=="local-engine" else ENGINE_DIR
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\steghide\steghide.exe",
@@ -34,7 +37,7 @@ def status():
     return {"ok":True,"engine":"Falcon Local Engine","version":VERSION,"python":True,
       "steghide":bool(find_steghide()),"steghide_path":find_steghide(),
       "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
-      "timeline_python":True,"ready":True}
+      "timeline_python":True,"no_fa_analysis":True,"ready":True}
 
 def dashboard():
     st=status()
@@ -135,6 +138,10 @@ class H(BaseHTTPRequestHandler):
                   ".svg":"image/svg+xml",".ico":"image/x-icon"}.get(target.suffix.lower(),"application/octet-stream")
             b=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mime)
             self.send_header("Cache-Control","no-store"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b); return
+        if path in ("/","/index.html"):
+            b=dashboard().encode("utf-8"); self.send_response(200)
+            self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b); return
         return reply(self,404,{"ok":False})
 
     def do_POST(self):
@@ -146,6 +153,22 @@ class H(BaseHTTPRequestHandler):
                 data=json.loads(self.rfile.read(n))
                 return reply(self,200,session_audit(str(data.get("url","")), str(data.get("challenge_text", ""))[:65536], data.get("email")))
             except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:500]})
+        if path=="/no-fa/analyze":
+            n=int(self.headers.get("Content-Length","0"))
+            if n>8192: return reply(self,413,{"ok":False,"error":"Invalid request size"})
+            if n: self.rfile.read(n)  # Request content is ignored; paths are fixed under C:\\Falcon\\analysis.
+            try:
+                from no_fa_analysis import analyze_artifacts
+                return reply(self,200,analyze_artifacts(ANALYSIS_ROOT))
+            except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
+        if path=="/no-fa/decode-session":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=32768: return reply(self,413,{"ok":False,"error":"Invalid request size"})
+            try:
+                data=json.loads(self.rfile.read(n))
+                from no_fa_analysis import decode_flask_session
+                return reply(self,200,decode_flask_session(data.get("cookie","")))
+            except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})
         if path=="/timeline/analyze":
             fls=find_tool("fls")
             if not fls: return reply(self,503,{"ok":False,"error":"fls.exe is not installed","need":["fls"]})
