@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.1.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.2.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -92,52 +92,12 @@ def session_audit(url):
     u=urllib.parse.urlsplit(url)
     if u.scheme not in ("http","https") or not (u.hostname or "").endswith(".cylabacademy.net") or u.username or u.password:
         raise ValueError("Use a cylabacademy.net CTF instance URL")
-    class ScopedRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            target=urllib.parse.urlsplit(newurl)
-            if target.hostname!=u.hostname or target.port!=u.port or target.scheme not in ("http","https"):
-                raise ValueError("Redirect outside challenge instance blocked")
-            return super().redirect_request(req,fp,code,msg,headers,newurl)
-    jar=http.cookiejar.CookieJar()
-    opener=urllib.request.build_opener(ScopedRedirect(),urllib.request.HTTPCookieProcessor(jar))
-    pages=[];cookies=[];flags=[]
-    for step in range(2):
-        with opener.open(urllib.request.Request(url,headers={"User-Agent":"Falcon-CTF-Session-Audit/2.1"}),timeout=20) as r:
-            raw=r.read(2*1024*1024+1)
-            if len(raw)>2*1024*1024: raise ValueError("Response exceeds 2 MB")
-            text=raw.decode("utf-8","replace")
-            pages.append({"step":step+1,"status":r.status,"url":r.geturl()})
-            flags+=re.findall(r"(?:academy|picoCTF|flag)\{[^{}\r\n]{2,200}\}",text)
-            for header in r.headers.get_all("Set-Cookie",[]):
-                c=SimpleCookie();c.load(header)
-                for name,m in c.items():
-                    findings=[]
-                    if not m["httponly"]: findings.append("Missing HttpOnly")
-                    if not m["secure"]: findings.append("Missing Secure")
-                    if not m["samesite"]: findings.append("Missing SameSite")
-                    deleted=False
-                    if m["max-age"]:
-                        try: deleted=int(m["max-age"])<=0
-                        except ValueError: pass
-                    elif m["expires"]:
-                        try: deleted=parsedate_to_datetime(m["expires"]).timestamp()<=time.time()
-                        except (ValueError,TypeError,OverflowError): pass
-                    if deleted: findings.append("Cookie deletion instruction; not a persistent authenticated session")
-                    elif m["expires"] or m["max-age"]: findings.append("Persistent cookie; server-side expiry is not verified")
-                    else: findings.append("Browser session cookie; server-side expiry is not verified")
-                    decoded=[]
-                    for token in urllib.parse.unquote(m.value).split('.'):
-                        try:
-                            z=base64.urlsafe_b64decode(token+'='*((-len(token))%4)).decode('utf-8')
-                            if z and all(ch.isprintable() or ch in '\r\n\t' for ch in z): decoded.append(z)
-                        except Exception: pass
-                    for z in decoded: flags+=re.findall(r"(?:academy|picoCTF|flag)\{[^{}\r\n]{2,200}\}",z)
-                    cookies.append({"name":name,"expires":m["expires"],"max_age":m["max-age"],"findings":findings,"decoded":decoded})
-    unique=[];seen=set()
-    for c in cookies:
-        key=json.dumps(c,sort_keys=True)
-        if key not in seen:seen.add(key);unique.append(c)
-    return {"ok":True,"pages":pages,"cookies":unique,"flags":list(dict.fromkeys(flags)),"session_reused":bool(list(jar)),"limitation":"Two anonymous GET requests only. Persistent cookies do not prove infinite sessions. Authenticated logout and idle-expiry checks require challenge session evidence."}
+    import web_session_audit
+    origin=urllib.parse.urlunsplit((u.scheme,u.netloc,"/","",""))
+    result=web_session_audit.run_audit(origin,timeout=15,insecure_tls=False,demonstrate_register_requirement=False)
+    result["ok"]=True
+    result["engine_version"]=VERSION
+    return result
 
 def reply(h,code,obj):
     b=json.dumps(obj,ensure_ascii=False).encode()
@@ -358,3 +318,4 @@ if __name__=="__main__":
     exe=find_steghide(); print(("🟢" if exe else "🔴")+" Steghide: "+(exe or "not installed"))
     print("Localhost only. Press Ctrl+C to stop.")
     ThreadingHTTPServer((HOST,PORT),H).serve_forever()
+
