@@ -26,6 +26,7 @@ CTF Falcon - Web Session Audit  (v2.3.0)
 from __future__ import annotations
 
 import json
+import ast
 import re
 import ssl
 import sys
@@ -37,7 +38,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.13.0"
+__version__ = "2.14.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -1071,6 +1072,7 @@ _STATIC_GUIDANCE = {
     "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
     "logon": "افحص كوكي الدور بعد تسجيل الدخول. يشرح صقر أثر قيمة admin إن ظهرت في استجابة التطبيق.",
     "get-ahead": "يقرأ صقر مسارات أزرار GET وPOST الظاهرة، ثم يرسل HEAD إلى مسار النموذج نفسه ويفحص رؤوس الاستجابة بحثًا عن العلم.",
+    "dont-use-client-side": "يحلل صقر شروط substring الموجودة في JavaScript المضمّن، ويرتب مقاطع كلمة المرور حسب مواقعها لإظهار العلم وشرح أن التحقق يجري في المتصفح.",
 }
 
 
@@ -1333,6 +1335,75 @@ def _decode_cookie_text(text: str) -> list[str]:
     return out
 
 
+def _simple_js_integer(expression: str, split_value: int | None) -> int | None:
+    """Evaluate only integer arithmetic used in substring offsets; never eval JS."""
+    try:
+        tree = ast.parse(expression.strip(), mode="eval")
+    except (SyntaxError, ValueError):
+        return None
+
+    def visit(node):
+        if isinstance(node, ast.Expression):
+            return visit(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.Name) and node.id == "split" and split_value is not None:
+            return split_value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = visit(node.operand)
+            return value if value is None or isinstance(node.op, ast.UAdd) else -value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.FloorDiv)):
+            left, right = visit(node.left), visit(node.right)
+            if left is None or right is None or (isinstance(node.op, ast.FloorDiv) and right == 0):
+                return None
+            if isinstance(node.op, ast.Add): return left + right
+            if isinstance(node.op, ast.Sub): return left - right
+            if isinstance(node.op, ast.Mult): return left * right
+            return left // right
+        return None
+
+    return visit(tree)
+
+
+def _reconstruct_client_side_flag(sources: list[tuple[str, str]], flag_patterns: list[str]):
+    joined_sources = "\n".join(body for _label, body in sources)
+    split_match = re.search(r"\bsplit\s*=\s*(0[xX][0-9a-fA-F]+|\d+)", joined_sources)
+    try:
+        split_value = int(split_match.group(1), 0) if split_match else None
+    except ValueError:
+        split_value = None
+    check = re.compile(
+        r"\bcheckpass\s*\.\s*substring\s*\(\s*([^,]+)\s*,\s*([^)]*)\)\s*={2,3}\s*(['\"])(.*?)\3",
+        re.I | re.S)
+    pieces = []
+    for match in check.finditer(joined_sources):
+        start = _simple_js_integer(match.group(1), split_value)
+        end = _simple_js_integer(match.group(2), split_value)
+        value = html_lib.unescape(match.group(4))
+        if start is not None and end is not None and 0 <= start < end and 0 < len(value) <= end - start:
+            pieces.append((start, end, value))
+    pieces.sort(key=lambda piece: (piece[0], piece[1]))
+    if not pieces:
+        return None, None, 0
+    # Reject conflicting/overlapping checks and require each recovered fragment
+    # to continue exactly where the previous substring ended.
+    ordered = [pieces[0]]
+    for piece in pieces[1:]:
+        previous = ordered[-1]
+        if piece[0] < previous[0] + len(previous[2]):
+            if piece[0] == previous[0] and piece[2] == previous[2]:
+                continue
+            return None, None, len(pieces)
+        if piece[0] != previous[0] + len(previous[2]):
+            return None, None, len(pieces)
+        ordered.append(piece)
+    candidate = "".join(piece[2] for piece in ordered)
+    flag, _ = extract_flag([("client-side substring checks", candidate)], flag_patterns)
+    if not flag:
+        return None, None, len(pieces)
+    return flag, "client-side substring checks", len(ordered)
+
+
 def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, record,
                             flag_patterns) -> dict:
     res = _base_result(origin, title, slug, recognized=True)
@@ -1561,6 +1632,10 @@ def _known_challenge_result(client, origin, recon, title, slug, steps, bodies, r
 
     # Search direct content first, then common encoded source literals.
     flag, source = extract_flag(resources + bodies, flag_patterns)
+    if not flag and slug == "dont-use-client-side":
+        flag, source, segment_count = _reconstruct_client_side_flag(resources + bodies, flag_patterns)
+        if flag:
+            res["discovered"]["client_side_check_segments"] = segment_count
     if not flag and slug == "scavenger-hunt":
         # Scavenger Hunt embeds fragments inside explanatory sentences, not as
         # standalone comments. Read only fetched challenge resources and use

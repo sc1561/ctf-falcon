@@ -106,6 +106,31 @@ class GetAheadHandler(BaseHTTPRequestHandler):
         self.end_headers()
     def log_message(self, *args): pass
 
+CLIENT_FLAG = "academy{never_trust_client}"
+
+class DontUseClientSideHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            body = b'''<input id="pass"><script>
+function verify() { var checkpass = document.getElementById("pass").value; split = 4;
+if (checkpass.substring(split*5, split*6) == 'clie') {}
+if (checkpass.substring(0, split) == 'acad') {}
+if (checkpass.substring(split*6, split*7) == 'nt}') {}
+if (checkpass.substring(split, split*2) == 'emy{') {}
+if (checkpass.substring(split*3, split*4) == 'r_tr') {}
+if (checkpass.substring(split*2, split*3) == 'neve') {}
+if (checkpass.substring(split*4, split*5) == 'ust_') {}
+}
+</script><script src="/md5.js"></script>'''
+            status = 200
+        else:
+            body, status = b"not found", 404
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def log_message(self, *args): pass
+
 
 def test_webdecode_linked_assets():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
@@ -185,6 +210,18 @@ def test_get_ahead_uses_head_on_form_action_and_reads_headers():
     assert result["flag_source"].startswith("HEAD response headers"), result
     assert any(step["method"] == "HEAD" and step["url"].endswith("/index.php") for step in result["steps"]), result
 
+def test_dont_use_client_side_reassembles_substring_checks():
+    srv = HTTPServer(("127.0.0.1", 0), DontUseClientSideHandler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True); thread.start()
+    try:
+        result = wsa.run_audit(f"http://127.0.0.1:{srv.server_port}/", challenge_text="## dont-use-client-side\nWeb ExploitationEasy")
+    finally:
+        srv.shutdown(); thread.join(timeout=2); srv.server_close()
+    assert result["recognized"] and result["analyzer"] == "dont-use-client-side", result
+    assert result["success"] and result["flag"] == CLIENT_FLAG, result
+    assert result["flag_source"] == "client-side substring checks", result
+    assert result["discovered"]["client_side_check_segments"] == 7, result
+
 if __name__ == "__main__":
     test_webdecode_linked_assets()
     test_css_rule_is_not_misreported_as_flag()
@@ -193,4 +230,5 @@ if __name__ == "__main__":
     test_cookies_numeric_range_is_bounded_and_stops_on_flag()
     test_scavenger_hunt_reconstructs_numbered_parts_from_discovered_files()
     test_get_ahead_uses_head_on_form_action_and_reads_headers()
+    test_dont_use_client_side_reassembles_substring_checks()
     print("known challenge tests passed")
