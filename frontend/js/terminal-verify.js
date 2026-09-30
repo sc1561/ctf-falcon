@@ -40,10 +40,13 @@
       var check=state.hash?'sha256sum files/* | grep '+state.hash:'';
       html+=steps(0)+'<div class="studentCard next"><h3>① الاتصال بالخادم</h3>';
       if(connect){
-        html+='<p>افتح <b>Windows Terminal أو PowerShell</b> (من قائمة Start اكتب Terminal)، ثم انسخ الأمر التالي والصقه واضغط <b>Enter</b>:</p>'+copyBtn(connect,'نسخ أمر الاتصال SSH');
-        if(state.password)html+='<p>عندما تظهر <b>Password:</b> اكتب/الصق كلمة المرور التالية ثم Enter. <b>لن تظهر الأحرف أثناء الكتابة وهذا طبيعي.</b></p>'+copyBtn(state.password,'نسخ كلمة المرور');
-        html+='<p>عندما ترى سطرًا ينتهي بـ <code>$</code> فقد تم الاتصال. لا تكتب علامة $ بنفسك.</p>';
-      }else html+='<p>افتح Terminal / PowerShell واتصل بعنوان SSH الموجود في وصف التحدي.</p>';
+        html+='<p>افتح قائمة Start، واكتب <b>PowerShell</b>، ثم افتح Windows PowerShell. انسخ أمر الاتصال التالي والصقه في النافذة واضغط Enter:</p>'+copyBtn(connect,'نسخ أمر الاتصال SSH');
+        if(state.password)html+=copyBtn(state.password,'نسخ كلمة المرور');
+        html+='<ol><li>إذا ظهر السؤال <code>Are you sure you want to continue connecting?</code> فاكتب <code>yes</code> واضغط Enter.</li>';
+        if(state.password)html+='<li>عند ظهور <code>Password:</code> الصق كلمة المرور أعلاه واضغط Enter. لن تظهر الأحرف أثناء الكتابة؛ هذا طبيعي.</li>';
+        else html+='<li>عند ظهور <code>Password:</code> أدخل كلمة المرور المذكورة في وصف التحدي ثم اضغط Enter. لن تظهر الأحرف أثناء الكتابة؛ هذا طبيعي.</li>';
+        html+='<li>اكتمل الاتصال عندما يظهر سطر أوامر ينتهي بالرمز <code>$</code>. لا تكتب <code>$</code> بنفسك.</li></ol>';
+      }else html+='<p><b>طريقة فتح جلسة SSH خطوة بخطوة:</b></p><ol><li>افتح قائمة Start، واكتب <b>PowerShell</b>، ثم افتح Windows PowerShell.</li><li>ارجع إلى وصف التحدي وابحث عن أمر يبدأ بكلمة <code>ssh</code>، مثل <code>ssh -p رقم_المنفذ ctf-player@اسم_الخادم</code>.</li><li>انسخ الأمر من الوصف والصقه في PowerShell ثم اضغط Enter.</li><li>إذا ظهر السؤال <code>Are you sure you want to continue connecting?</code> فاكتب <code>yes</code> واضغط Enter.</li><li>أدخل كلمة المرور الموجودة في وصف التحدي عند ظهور <code>Password:</code> ثم اضغط Enter. لن تظهر الأحرف أثناء الكتابة؛ هذا طبيعي.</li><li>تم الاتصال عندما يظهر سطر أوامر ينتهي بـ <code>$</code>.</li></ol><p>إذا لم تجد أمر SSH في النص الذي حللته، الصق الأمر هنا ليجهزه لك صقر:</p><textarea class="falconVerifyPaste" style="width:100%;min-height:64px" placeholder="ssh -p 12345 ctf-player@rhea.picoctf.net"></textarea><button type="button" class="falconVerifyContinue">➡️ جهّز أمر الاتصال</button>';
       if(check)html+='<h3>② التحقق من SHA-256</h3><p>بعد نجاح الاتصال وظهور علامة <code>$</code>، انسخ هذا الأمر والصقه في <b>نفس نافذة SSH</b> ثم اضغط Enter:</p>'+copyBtn(check,'نسخ أمر التحقق')+'<p>ستظهر نتيجة فيها اسم ملف مثل <code>files/xxxx</code>. انسخ <b>سطر النتيجة كاملًا</b> والصقه هنا:</p>'+pasteBox('📥 الصق نتيجة SHA-256');
       html+='</div></div>';
     }

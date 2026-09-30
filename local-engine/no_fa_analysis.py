@@ -52,6 +52,7 @@ def analyze_artifacts(folder: str | Path) -> dict:
         "source_findings": [],
         "wordlist_used": [],
         "next_steps": [],
+        "cookie_steps_ar": [],
     }
 
     source = ""
@@ -101,8 +102,17 @@ def analyze_artifacts(folder: str | Path) -> dict:
             "read_otp_secret_from_the_flask_session_cookie",
             "submit_otp_within_120_seconds",
         ]
+        result["cookie_steps_ar"] = [
+            "في صفحة التحدي بعد تسجيل الدخول، اضغط F12 لفتح أدوات المطوّر.",
+            "اختر Application، ثم من القائمة الجانبية افتح Storage ثم Cookies.",
+            "اختر عنوان موقع التحدي، وابحث عن صف اسمه session، ثم انسخ قيمة Value كاملة.",
+            "ارجع إلى صقر، والصق القيمة في الخانة أدناه واضغط «استخراج رمز OTP».",
+        ]
     else:
         result["next_steps"] = ["save_app.py_and_users.db_in_analysis_folder"]
+        result["cookie_steps_ar"] = [
+            "احفظ app.py وusers.db داخل C:\\Falcon\\analysis، ثم أعد التحليل.",
+        ]
     return result
 
 

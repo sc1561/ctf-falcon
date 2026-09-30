@@ -46,6 +46,8 @@ class NoFaAnalysisTests(unittest.TestCase):
         self.assertEqual(result["admin"]["password_candidate"], "apple@123")
         self.assertIn("otp_stored_in_flask_session", result["source_findings"])
         self.assertIn("otp_valid_for_120_seconds", result["source_findings"])
+        self.assertTrue(any("F12" in step for step in result["cookie_steps_ar"]))
+        self.assertTrue(any("Value" in step for step in result["cookie_steps_ar"]))
 
     def test_missing_artifacts_are_reported_without_failure(self):
         result = analyze_artifacts(self.folder / "missing")
