@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -573,6 +573,16 @@ def solve_n0s4n1ty(client, origin, recon, ev, steps, record,
         res["warnings"].append(f"تعذّر إرسال الملف إلى نموذج الرفع: {e}.")
         return res
     res["discovered"]["upload_status"] = upload["status"]
+    security_page = bool(re.search(
+        r"Kaspersky Endpoint Security|Request has been forbidden by antivirus|forbidden by antivirus",
+        upload["body"], re.I))
+    if security_page:
+        res["discovered"]["upload_blocked_by_security"] = "Kaspersky Endpoint Security"
+        res["explanation_ar"].append(
+            "الاستجابة صفحة حظر من Kaspersky، وليست ردّ تطبيق التحدي؛ لم يصل تأكيد الرفع إلى الموقع.")
+        res["warnings"].append(
+            "اعترض Kaspersky الطلب محليًا (HTTP 499). هذا لا يثبت أن الموقع رفض الملف. أوقف صقر المحاولة؛ استخدم بيئة التحدي المعتمدة أو اطلب من مسؤول الشبكة مراجعة السماح بالاتصال بنطاق التحدي. لا تغيّر الحمولة لتجاوز الحماية.")
+        return res
     upload_path = _uploaded_shell_path(upload["body"], filename)
     res["discovered"]["upload_path"] = upload_path
     if not (200 <= upload["status"] < 300) or not upload_path:

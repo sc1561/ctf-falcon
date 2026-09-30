@@ -22,6 +22,12 @@ assert not failed['success'] and len(failed['steps'])==2,failed
 assert 'Sorry, there was an error uploading your file.' in failed['warnings'][0]
 print('PASS: upload rejection is reported verbatim and halts before command execution')
 
+blocked=run_case(kaspersky_block=True)
+assert not blocked['success'] and len(blocked['steps'])==2,blocked
+assert blocked['discovered']['upload_blocked_by_security']=='Kaspersky Endpoint Security'
+assert 'لا تغيّر الحمولة لتجاوز الحماية' in blocked['warnings'][0]
+print('PASS: Kaspersky HTTP 499 is identified as a local security block, not target rejection')
+
 no_sudo=run_case(no_sudo=True)
 assert not no_sudo['success'] and len(no_sudo['steps'])==4,no_sudo
 assert not no_sudo['discovered']['sudo_nopasswd']

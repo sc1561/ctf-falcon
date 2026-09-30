@@ -8,6 +8,7 @@ FLAG = "academy{mock_n0s4n1ty_flag_only}"
 class Handler(BaseHTTPRequestHandler):
     fail_upload = False
     no_sudo = False
+    kaspersky_block = False
     def log_message(self, *args): pass
     def _send(self, body, status=200):
         data=body.encode(); self.send_response(status); self.send_header("Content-Type","text/html; charset=utf-8")
@@ -31,11 +32,13 @@ class Handler(BaseHTTPRequestHandler):
         assert "multipart/form-data" in self.headers.get("Content-Type","")
         assert b'name="file"; filename="falcon_cmd.php"' in data
         assert b"system($_GET['cmd'])" in data
+        if self.kaspersky_block:
+            return self._send('<!DOCTYPE html><html><head><title>Kaspersky Endpoint Security for Windows</title></head><body>Request has been forbidden by antivirus</body></html>',499)
         if self.fail_upload: return self._send("Sorry, there was an error uploading your file.")
         return self._send("The file falcon_cmd.php has been uploaded Path: uploads/falcon_cmd.php")
 
-def start_server(fail_upload=False,no_sudo=False):
-    Handler.fail_upload=fail_upload; Handler.no_sudo=no_sudo
+def start_server(fail_upload=False,no_sudo=False,kaspersky_block=False):
+    Handler.fail_upload=fail_upload; Handler.no_sudo=no_sudo; Handler.kaspersky_block=kaspersky_block
     server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
     Thread(target=server.serve_forever,daemon=True).start()
     return server,f"http://127.0.0.1:{server.server_port}/"
