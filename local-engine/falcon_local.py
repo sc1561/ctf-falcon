@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.5.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.6.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -320,4 +320,3 @@ if __name__=="__main__":
     exe=find_steghide(); print(("🟢" if exe else "🔴")+" Steghide: "+(exe or "not installed"))
     print("Localhost only. Press Ctrl+C to stop.")
     ThreadingHTTPServer((HOST,PORT),H).serve_forever()
-

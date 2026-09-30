@@ -32,11 +32,12 @@ import sys
 import http.client
 import secrets
 import codecs
+import html as html_lib
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.5.1"
+__version__ = "2.6.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -49,6 +50,7 @@ DEFAULT_FLAG_PATTERNS = [
 ]
 DEFAULT_TIMEOUT = 15
 MAX_BODY = 2 * 1024 * 1024
+MAX_HEAPDUMP_BODY = 32 * 1024 * 1024
 TEST_PASSWORD = "falcon-nonsensitive-test"   # كلمة مرور تجريبية، لا تُسجَّل أبدًا
 USER_AGENT = f"CTF-Falcon-WebAudit/{__version__} (educational; authorized-CTF-only)"
 
@@ -82,7 +84,7 @@ class HttpClient:
         return notes
 
     def request(self, method: str, url: str, body: str | bytes | None = None,
-                extra_headers: dict | None = None) -> dict:
+                extra_headers: dict | None = None, max_body: int = MAX_BODY) -> dict:
         parts = urlsplit(url)
         scheme = parts.scheme or "http"
         host = parts.hostname
@@ -129,9 +131,9 @@ class HttpClient:
             conn.request(method, path, body=body, headers=headers)
             resp = conn.getresponse()
             raw_headers = resp.getheaders()
-            raw_body = resp.read(MAX_BODY + 1)
-            if len(raw_body) > MAX_BODY:
-                raise ValueError("Response exceeds 2 MB")
+            raw_body = resp.read(max_body + 1)
+            if len(raw_body) > max_body:
+                raise ValueError(f"Response exceeds {max_body} bytes")
             status = resp.status
             reason = resp.reason
         finally:
@@ -528,6 +530,115 @@ def detect_n0s4n1ty(recon):
             return {"action": form.get("action") or "/", "field": files[0],
                     "file_fields": files, "method": "POST"}
     return None
+
+
+_ANCHOR_RE = re.compile(r"<a\b([^>]*)>(.*?)</a\s*>", re.I | re.S)
+_HREF_RE = re.compile(r"\bhref\s*=\s*['\"]([^'\"]+)['\"]", re.I)
+_SCRIPT_SRC_RE = re.compile(r"<script\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"][^>]*>", re.I)
+
+
+def detect_head_dump(recon):
+    """Only enter this analyzer when the homepage links to its API documentation."""
+    page = recon.get("html", "")
+    for attrs, inner in _ANCHOR_RE.findall(page):
+        href = _HREF_RE.search(attrs)
+        label = re.sub(r"<[^>]*>", " ", inner)
+        label = html_lib.unescape(re.sub(r"\s+", " ", label)).strip()
+        if href and "api documentation" in label.lower() and "api-docs" in href.group(1).lower():
+            return {"documentation_link": html_lib.unescape(href.group(1)), "label": label}
+    return None
+
+
+def _get_with_observed_redirects(client, url, record, note, max_redirects=3,
+                                max_body=MAX_BODY):
+    """GET a discovered URL and explicitly record bounded, same-origin redirects."""
+    current = url
+    for index in range(max_redirects + 1):
+        response = client.request("GET", current, max_body=max_body)
+        record(response, [note if index == 0 else "اتباع تحويل GET معلَن داخل أصل التحدي."])
+        if response["status"] not in (301, 302, 303, 307, 308) or not response.get("location"):
+            return response
+        next_url = urljoin(current, response["location"])
+        old, new = urlsplit(current), urlsplit(next_url)
+        if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+            raise ValueError("Cross-origin redirect blocked")
+        current = next_url
+    raise ValueError("Too many same-origin redirects")
+
+
+def solve_head_dump(client, origin, recon, ev, steps, record,
+                    flag_patterns) -> dict:
+    res = _base_result(origin, "head-dump", "head-dump", recognized=True)
+    res["steps"] = steps
+    res["discovered"] = {"documentation_link": ev["documentation_link"]}
+    res["explanation_ar"].append(
+        "تتبع صقر رابط «API Documentation» الموجود في الصفحة؛ لن يجرّب مسارات غير موثقة.")
+    docs_url = urljoin(origin, ev["documentation_link"])
+    try:
+        docs = _get_with_observed_redirects(
+            client, docs_url, record, "فتح رابط توثيق API المكتشف في الصفحة الرئيسية.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر فتح رابط توثيق API: {e}.")
+        return res
+    if not 200 <= docs["status"] < 300:
+        res["warnings"].append(f"أعاد رابط توثيق API الحالة HTTP {docs['status']}.")
+        return res
+
+    script_src = next((src for src in _SCRIPT_SRC_RE.findall(docs["body"])
+                       if "swagger-ui-init" in src.lower()), None)
+    if script_src:
+        spec_url = urljoin(docs["url"], html_lib.unescape(script_src))
+        try:
+            spec = _get_with_observed_redirects(
+                client, spec_url, record, "قراءة ملف إعداد Swagger المرتبط بصفحة التوثيق.")
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            res["warnings"].append(f"تعذّر قراءة ملف إعداد Swagger: {e}.")
+            return res
+        if not 200 <= spec["status"] < 300:
+            res["warnings"].append(f"أعاد ملف إعداد Swagger الحالة HTTP {spec['status']}.")
+            return res
+        spec_text, spec_source = spec["body"], spec_url
+    else:
+        # Some Swagger installations embed their API document directly in the HTML.
+        spec_text, spec_source = docs["body"], docs_url
+
+    route_match = re.search(r"['\"](/heapdump)['\"]\s*:\s*\{", spec_text, re.I)
+    if not route_match:
+        res["explanation_ar"].append("لم يعرض التوثيق المفتوح مسار heapdump صراحةً؛ لم يُطلب أي مسار آخر.")
+        res["warnings"].append("تعذّر إثبات مسار تفريغ الذاكرة من مستندات API المكتشفة.")
+        return res
+    heap_path = route_match.group(1)
+    heap_url = urljoin(spec_source, heap_path)
+    res["discovered"]["swagger_source"] = spec_url if script_src else None
+    res["discovered"]["heapdump_path"] = heap_path
+    res["explanation_ar"].append(
+        f"توثيق Swagger يعرّف GET {heap_path}؛ سيُقرأ الملف بهذا المسار الموثّق فقط.")
+    try:
+        dump = _get_with_observed_redirects(
+            client, heap_url, record,
+            "تنزيل heap snapshot من endpoint الموثق في Swagger (حد الاستجابة 32 MiB).",
+            max_body=MAX_HEAPDUMP_BODY)
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر تنزيل ملف heap snapshot: {e}.")
+        return res
+    res["discovered"]["heapdump_status"] = dump["status"]
+    res["discovered"]["heapdump_bytes"] = len(dump["body"].encode("utf-8", errors="replace"))
+    disposition = next((v for k, v in dump["headers"] if k.lower() == "content-disposition"), "")
+    filename = re.search(r"filename\s*=\s*[\"']?([^\"';]+)", disposition, re.I)
+    if filename:
+        res["discovered"]["artifact_filename"] = filename.group(1)
+    if not 200 <= dump["status"] < 300:
+        res["warnings"].append(f"أعاد heapdump الحالة HTTP {dump['status']}.")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:heapdump", dump["body"])], flag_patterns)
+    if flag:
+        res["success"], res["flag"], res["flag_source"] = True, flag, source
+        res["explanation_ar"].append(
+            "عُثر على العلم داخل استجابة heap snapshot الفعلية؛ يوضح هذا التحدي خطر كشف بيانات الذاكرة.")
+    else:
+        res["warnings"].append(
+            "تم تنزيل heap snapshot بنجاح لكن لم يظهر نمط علم معروف؛ راجع حجم الملف أو صيغة العلم.")
+    return res
 
 
 def _multipart_file(boundary: str, field: str, filename: str,
@@ -980,6 +1091,10 @@ def run_audit(url: str,
     cg = detect_crack_the_gate(recon)
     if cg:
         return solve_crack_the_gate(client, origin, recon, cg, steps, bodies, record, flag_patterns, opts)
+
+    head_dump = detect_head_dump(recon)
+    if head_dump:
+        return solve_head_dump(client, origin, recon, head_dump, steps, record, flag_patterns)
 
     if detect_old_sessions(recon):
         return solve_old_sessions(client, origin, recon, steps, bodies, record, flag_patterns, opts)

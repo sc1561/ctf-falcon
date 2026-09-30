@@ -1,5 +1,5 @@
 /* ==========================================================================
- * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v147
+ * CTF Falcon — Web Sessions panel  (frontend/js/web-sessions.js)  v148
  * --------------------------------------------------------------------------
  * وحدة واجهة مستقلة تستدعي المحرك المحلي على /web/session-audit وتعرض:
  *   - جدولًا زمنيًا لكل خطوة (الطريقة/المسار/الحالة/التحويل)
@@ -210,6 +210,12 @@
       if (d.upload_path) ul.appendChild(el("li", null, "مسار الملف المرفوع: " + d.upload_path));
       if (d.web_user) ul.appendChild(el("li", null, "مستخدم خادم الويب: " + d.web_user));
       if (typeof d.sudo_nopasswd === "boolean") ul.appendChild(el("li", null, "sudo بلا كلمة مرور: " + (d.sudo_nopasswd ? "نعم" : "لا")));
+      // head-dump
+      if (d.documentation_link) ul.appendChild(el("li", null, "رابط توثيق API المكتشف: " + d.documentation_link));
+      if (d.swagger_source) ul.appendChild(el("li", null, "مصدر تعريف Swagger: " + d.swagger_source));
+      if (d.heapdump_path) ul.appendChild(el("li", null, "مسار heapdump الموثق: " + d.heapdump_path));
+      if (d.heapdump_status) ul.appendChild(el("li", null, "حالة تنزيل heap snapshot: HTTP " + d.heapdump_status + (d.heapdump_bytes ? " (" + d.heapdump_bytes + " bytes)" : "")));
+      if (d.artifact_filename) ul.appendChild(el("li", null, "اسم الملف: " + d.artifact_filename));
       // غير معروف
       if (d.emails && d.emails.length) ul.appendChild(el("li", null, "عناوين بريد في الصفحة: " + d.emails.join(", ")));
       if (d.decoded_comments && d.decoded_comments.length)
@@ -398,13 +404,13 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.5.1…';
+    out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.6.0…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
       if(version[0]<2||(version[0]===2&&(version[1]<3||(version[1]<4||(version[1]===4&&(version[2]||0)<1)))))
-        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.5.1 ثم أعد تشغيل المحرك (يشخّص اعتراض Kaspersky في n0s4n1ty 1).');
+        throw new Error('استبدل falcon_local.py وweb_session_audit.py بالإصدار 2.6.0 ثم أعد تشغيل المحرك (يدعم n0s4n1ty 1 وhead-dump).');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');
