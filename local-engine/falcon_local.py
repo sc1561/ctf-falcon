@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="1.6"
+HOST="127.0.0.1"; PORT=8765; VERSION="1.7"
 WEB_ROOT=Path(__file__).resolve().parent.parent
 
 def find_steghide():
@@ -135,17 +135,25 @@ class H(BaseHTTPRequestHandler):
             try:
                 with gzip.open(gz,"rb") as r, img.open("wb") as w: shutil.copyfileobj(r,w,1024*1024)
                 body=work/"bodyfile.txt"
-                chosen_offset=None; attempts=[]
+                chosen_offset=None; attempts=[]; best_score=-1; best_data=""
                 for off in partition_offsets(img):
                     args=[fls,"-r","-m","/"]
                     if off: args += ["-o",str(off)]
                     args.append(str(img))
-                    with body.open("w",encoding="utf-8",errors="ignore") as w:
+                    candidate=work/("bodyfile_"+str(off)+".txt")
+                    with candidate.open("w",encoding="utf-8",errors="ignore") as w:
                         q=subprocess.run(args,stdout=w,stderr=subprocess.PIPE,text=True,timeout=240)
-                    attempts.append({"offset":off,"returncode":q.returncode,"error":q.stderr[-500:]})
-                    if q.returncode==0 and body.stat().st_size>0:
-                        chosen_offset=off; break
+                    data=candidate.read_text(encoding="utf-8",errors="ignore") if candidate.exists() else ""
+                    low=data.lower()
+                    # Prefer a real Linux root/data filesystem over a tiny boot partition.
+                    score=data.count("\n")
+                    for marker,weight in (("/home/",5000),("/root/",5000),("/etc/",2500),("/var/",2000),("/usr/",1000),("flag",8000),("secret",4000)):
+                        if marker in low: score+=weight
+                    attempts.append({"offset":off,"returncode":q.returncode,"records":data.count("\n"),"score":score,"error":q.stderr[-500:]})
+                    if q.returncode==0 and data and score>best_score:
+                        best_score=score; chosen_offset=off; best_data=data
                 if chosen_offset is None: return reply(self,422,{"ok":False,"error":"fls failed on filesystem and detected partitions","attempts":attempts})
+                body.write_text(best_data,encoding="utf-8")
                 macb=body_macb(body); recent=macb[-120:]
                 years=[int(x[:4]) for x in macb if len(x)>=5 and x[:4].isdigit() and x[4]=="-"]
                 normal_year=max(years) if years else datetime.now().year
@@ -191,7 +199,7 @@ class H(BaseHTTPRequestHandler):
                         except Exception as ex:
                             extracted.append({"path":name2,"inode":inode,"text":"","flags":[],"error":str(ex)[:500]})
                 return reply(self,200,{"ok":True,"engine":"fls + Falcon Python Timeline + icat","macb_count":len(macb),
-                  "filesystem_offset":chosen_offset,"recent":recent,"evidence":evidence[-40:],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
+                  "filesystem_offset":chosen_offset,"partition_attempts":attempts,"recent":recent,"evidence":evidence[-40:],"old_anomalies":old_anomalies[:80],"icat_path":icat,"extracted":extracted})
             except subprocess.TimeoutExpired: return reply(self,504,{"ok":False,"error":"Timeline analysis timed out"})
             except Exception as e: return reply(self,500,{"ok":False,"error":"Timeline analysis failed","message":str(e)[:500]})
 
