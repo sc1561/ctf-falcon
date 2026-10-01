@@ -55,7 +55,7 @@ def _artifact_urls(challenge_text: str) -> tuple[str | None, str | None]:
 
 
 def _download(url: str, dest: Path, limit: int) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "CTF-Falcon-FoolLockout/2.34.0 (authorized CTF)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "CTF-Falcon-FoolLockout/2.34.1 (authorized CTF)"})
     opener = urllib.request.build_opener(_NoRedirect())
     try:
         response = opener.open(req, timeout=12)
@@ -82,11 +82,13 @@ def _load_and_verify_source(path: Path) -> tuple[int, int, int]:
     max_requests = constant("MAX_REQUESTS")
     epoch_duration = constant("EPOCH_DURATION")
     lockout_duration = constant("LOCKOUT_DURATION")
-    # Verify the exact defect before trying any credentials: the counter resets
-    # at EPOCH_DURATION, while the supposed lockout timestamp is not consulted.
+    # Verify the source-derived attack conditions before any attempt. The server
+    # reads these exact form keys; HTML input markup can vary between templates.
+    has_login_fields = all(re.search(rf"request\.form\s*\[\s*['\"]{field}['\"]\s*\]", src)
+                           for field in ("username", "password"))
     evidence = ("curr_time - epoch_start_time > EPOCH_DURATION" in src and
                 "request_rates[client_ip]['num_requests'] > MAX_REQUESTS" in src and
-                "lockout_until" in src and
+                "lockout_until" in src and has_login_fields and
                 not re.search(r"(?:curr_time|time\.time\(\))\s*<\s*request_rates\[client_ip\]\[['\"]lockout_until['\"]\]", src))
     if not evidence or max_requests < 1 or epoch_duration < 1 or lockout_duration <= epoch_duration:
         raise RuntimeError("مصدر التطبيق لا يطابق خلل إعادة ضبط عداد حدّ المحاولات؛ أوقف صقر المحاولات.")
@@ -145,7 +147,7 @@ def solve(challenge_text: str, analysis_root: Path, *, progress=None,
             raise RuntimeError("تم إيقاف طلب خارج أصل مثيل التحدي.")
         data = urllib.parse.urlencode(fields).encode() if fields is not None else None
         req = urllib.request.Request(url, data=data, method=method,
-              headers={"User-Agent": "CTF-Falcon-FoolLockout/2.34.0 (authorized CTF)",
+              headers={"User-Agent": "CTF-Falcon-FoolLockout/2.34.1 (authorized CTF)",
                        "Accept": "text/html,*/*"})
         try:
             response = opener.open(req, timeout=8)
@@ -161,8 +163,12 @@ def solve(challenge_text: str, analysis_root: Path, *, progress=None,
 
     try:
         code, login_page, _ = request("GET", "/login")
-        if code != 200 or not re.search(r'name=[\"\']username[\"\']', login_page, re.I) or not re.search(r'name=[\"\']password[\"\']', login_page, re.I):
-            raise RuntimeError("صفحة تسجيل الدخول لا تطابق حقول التطبيق؛ لم تُرسل بيانات الاعتماد.")
+        if code != 200:
+            raise RuntimeError(f"صفحة الدخول أعادت HTTP {code}؛ لم تُرسل بيانات الاعتماد.")
+        if "Rate Limited Exceeded" in login_page:
+            raise RuntimeError("المثيل يرفض صفحة الدخول بسبب حدّ المحاولات؛ أوقف صقر قبل إرسال بيانات اعتماد.")
+        # Field names were verified in app.py. Do not require a specific template
+        # serialization (e.g. whitespace or input attributes) to match a regex.
         steps.append({"method": "GET", "path": "/login", "status": code})
         index = 0
         while index < len(pairs):
