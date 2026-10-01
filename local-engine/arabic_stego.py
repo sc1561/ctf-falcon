@@ -113,6 +113,8 @@ def _unicode_text(data: bytes):
             text = data.decode(enc)
         except UnicodeError:
             continue
+        if any(c in INVIS for c in text):
+            return text
         if sum(c.isprintable() or c in "\r\n\t" for c in text) / max(1, len(text)) > .75:
             return text
     return None
