@@ -523,8 +523,8 @@
       /https?:\/\/[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?\//i.test(text);
   }
   function isCryptoChallengePrompt(text) {
-    text=String(text||'').replace(/(https?)\\\\:/gi,'$1:');
-    return /(?:^|\\n)\\s*(?:#{1,6}\\s*)?(?:StegoRSA|Shared Secrets|hashcrack|interencdec|Mod 26|The Numbers|Timestamped Secrets|Small Trouble|shift registers|Related Messages|Not TRUe|cryptomaze|ClusterRSA|Black Cobra Pepper|Crack the Power|Guess My Cheese \\(Part [12]\\)|rsa_oracle|Custom encryption|C3|rotation|13)(?=\\s|$|[—-])/im.test(text)
+    text=String(text||'').replace(/(https?)\\:/gi,'$1:');
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?(?:StegoRSA|Shared Secrets|hashcrack|interencdec|Mod 26|The Numbers|Timestamped Secrets|Small Trouble|shift registers|Related Messages|Not TRUe|cryptomaze|ClusterRSA|Black Cobra Pepper|Crack the Power|Guess My Cheese \(Part [12]\)|rsa_oracle|Custom encryption|C3|rotation|13)(?=\s|$|[—-])/im.test(text)
       && /Cryptography/i.test(text);
   }
   async function runCryptoChallenge(text) {
@@ -825,7 +825,8 @@
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
     var pastedText=(document.getElementById('text')||{}).value||'';
-    if(isCryptoChallengePrompt(pastedText))return runCryptoChallenge(pastedText);\n    if(isSqlMap1Prompt(pastedText))return runSqlMap1Challenge(pastedText);
+    if(isCryptoChallengePrompt(pastedText))return runCryptoChallenge(pastedText);
+    if(isSqlMap1Prompt(pastedText))return runSqlMap1Challenge(pastedText);
     if(isFoolLockoutPrompt(pastedText))return runFoolLockoutChallenge(pastedText);
     if(isUndoPrompt(pastedText))return runUndoChallenge(pastedText);
     if(isSecretBoxPrompt(pastedText))return runSecretBoxChallenge(pastedText);
