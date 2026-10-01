@@ -10,7 +10,7 @@ class LocalConnection(real):
  def __init__(self,host,port=None,**kw):super().__init__('127.0.0.1' if host=='mock.cylabacademy.net' else host,target_port if host=='mock.cylabacademy.net' else port,**kw)
 engine_server=engine.ThreadingHTTPServer(('127.0.0.1',0),engine.H);threading.Thread(target=engine_server.serve_forever,daemon=True).start();url='http://127.0.0.1:'+str(engine_server.server_port)
 try:
- health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.25.0'
+ health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.26.0'
  artifact_req=urllib.request.Request(url+'/artifacts/analyze',data=b'picoCTF{local_artifact_scan}',headers={'Content-Type':'application/octet-stream','X-Filename':'sample.txt'})
  with urllib.request.urlopen(artifact_req) as r:
   artifact=json.load(r);assert artifact['ok'] and artifact['flags'][0]['flag']=='picoCTF{local_artifact_scan}'
@@ -24,6 +24,12 @@ try:
  with urllib.request.urlopen(tcp_req) as r:
   tcp=json.load(r);assert tcp['analyzer']=='credential-stuffing' and tcp['steps']==[]
  assert tcp['target']=='TCP chatelaine.cylabacademy.net:34707' and not tcp['success']
+ undo_req=urllib.request.Request(url+'/web/session-audit',data=json.dumps({'url':'','challenge_text':'Undo\npicoCTF\nnc chatelaine.cylabacademy.net 41550'}).encode(),headers={'Content-Type':'application/json'})
+ with urllib.request.urlopen(undo_req) as r:
+  undo=json.load(r);assert undo['analyzer']=='undo' and undo['discovered']['protocol']=='TCP'
+ undo_body=urllib.request.Request(url+'/undo/analyze',data=json.dumps({'challenge_text':'Undo\npicoCTF','transcript':'ROT13 then rev'}).encode(),headers={'Content-Type':'application/json'})
+ with urllib.request.urlopen(undo_body) as r:
+  undo_result=json.load(r);assert [s['operation'] for s in undo_result['inverse_steps']]==['rev','rot13']
  no_confirm=urllib.request.Request(url+'/credential-stuffing/solve',data=json.dumps({'confirm':False}).encode(),headers={'Content-Type':'application/json'})
  try:urllib.request.urlopen(no_confirm)
  except urllib.error.HTTPError as e:assert e.code==400

@@ -1,4 +1,4 @@
-# Falcon Local Engine v2.25.0
+# Falcon Local Engine v2.26.0
 
 محرك محلي اختياري لـ CTF Falcon. يعمل على الجهاز فقط على `127.0.0.1:8765` ولا يفتح خادمًا على الشبكة.
 
@@ -12,13 +12,17 @@
 
 ## تحليل تحدي No FA
 
-ضع `app.py` و`users.db` داخل `C:\Falcon\analysis`. يقرأ الإصدار 2.25.0 هذين الملفين محليًا عبر `POST /no-fa/analyze`، ويفحص قاعدة البيانات للعثور على حساب admin والتحقق من مرشحات SHA-256 المعروفة. يعرض دليلًا يبيّن للطالب سطر SHA-256 في app.py، وأعمدة الجدول وغياب Salt، وكيف قورنت بصمات الكلمات المرشحة. لا يرسل بيانات اعتماد إلى المثيل.
+ضع `app.py` و`users.db` داخل `C:\Falcon\analysis`. يقرأ الإصدار 2.26.0 هذين الملفين محليًا عبر `POST /no-fa/analyze`، ويفحص قاعدة البيانات للعثور على حساب admin والتحقق من مرشحات SHA-256 المعروفة. يعرض دليلًا يبيّن للطالب سطر SHA-256 في app.py، وأعمدة الجدول وغياب Salt، وكيف قورنت بصمات الكلمات المرشحة. لا يرسل بيانات اعتماد إلى المثيل.
 
 ## Credential Stuffing (picoCTF)
 
 احفظ `creds-dump.txt` في `C:\Falcon\analysis` ثم شغّل التحليل الموجّه من واجهة صقر. المحرك يقرأ صيغة `username;password` محليًا، ويستخرج هدف TCP من أمر `nc` في وصف التحدي. يقبل فقط مضيفًا داخل `cylabacademy.net` أو `cylabacademy.org`، ولا يتصل إلا بعد ضغط الطالب زر البدء. الحد الأقصى 1500 زوج، بترتيب الملف وفاصل زمني 0.1 ثانية؛ لا يطبع كلمات المرور.
 
 بعد تسجيل الدخول في المثيل، اتبع الخطوات الظاهرة في صقر للوصول إلى Application ثم Storage ثم Cookies، وانسخ قيمة `session` إلى المحلل المحلي. يقرأ `POST /no-fa/decode-session` حقول cookie الموقعة من Flask، ومنها `otp_secret`، من دون التحقق من التوقيع؛ استخدم النتيجة فقط في مختبر CTF المصرح به.
+
+## Undo (picoCTF)
+
+الصق وصف التحدي واضغط «حلّل التحدي»؛ سيعرض صقر إرشادات الاتصال عبر TCP. بعد الاتصال باستخدام Ncat، الصق خرج الخادم في مساحة شرح Undo. يميّز المحرك تلميحات `rev` وROT13 وBase64 وHex وتبديل حالة الأحرف و`tr`، ويعرض أوامر العكس بالترتيب المعاكس. لا ينفذ أوامر النظام ولا يتصل بالخدمة نيابة عن الطالب. تحذير `tr`: لا يمكن عكس الحذف أو ضغط التكرار أو الخرائط التي تفقد معلومات؛ تبديل مجموعتي المحارف صالح فقط عندما يكون التحويل واحدًا لواحد.
 
 ## فحص الملفات المتداخل
 
@@ -29,6 +33,7 @@
 - `POST /artifacts/analyze`
 - `POST /no-fa/analyze`
 - `POST /credential-stuffing/solve` (requires explicit confirmation and a parsed CTF target)
+- `POST /undo/analyze` (requires a recognized Undo prompt and pasted service transcript)
 - `POST /no-fa/decode-session`
 - `POST /web/session-audit`
 - `POST /timeline/analyze`

@@ -36,6 +36,9 @@
   .fws-input{flex:1;min-width:220px;background:var(--fws-panel2);color:var(--fws-txt);
     border:1px solid var(--fws-line);border-radius:10px;padding:11px 12px;font-size:15px;
     direction:ltr;text-align:left}
+  .fws-area{width:100%;min-height:180px;background:var(--fws-panel2);color:var(--fws-txt);
+    border:1px solid var(--fws-line);border-radius:10px;padding:12px;font:14px/1.6 Consolas,monospace;
+    direction:auto;text-align:left;resize:vertical}
   .fws-btn{background:var(--fws-accent);color:#04121f;border:0;border-radius:10px;
     padding:11px 18px;font-weight:700;cursor:pointer;font-size:15px}
   .fws-btn:disabled{opacity:.55;cursor:progress}
@@ -488,6 +491,48 @@
     return /(?:^|\n)\s*(?:#{1,6}\s*)?Credential\s+Stuffing(?=\s|$|[—-])/im.test(text) &&
       /creds-dump\.txt/i.test(text) && /\bnc\s+[a-z0-9.-]+\.cylabacademy\.(?:net|org)\s+\d{1,5}\b/i.test(text);
   }
+  function isUndoPrompt(text) {
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?Undo(?=\s|$|[—-])/im.test(String(text||'')) &&
+      /(?:picoCTF|chatelaine\.cylabacademy|transformation|transform|\bnc\s)/i.test(String(text||''));
+  }
+  async function runUndoChallenge(text) {
+    if(busy)return false;
+    busy=true;
+    var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();out.innerHTML='';
+    var card=el('div','fws-card');
+    card.appendChild(el('div','fws-h','🧭 شرح تحدي TCP: Undo'));
+    card.appendChild(el('p',null,'هذا التحدي يطلب عكس تحويلات نصية. اتصل بالخدمة المذكورة في وصف التحدي، ثم الصق هنا رسائلها كاملة، وخصوصًا أسماء التحويلات أو أوامر Linux التي تذكرها.'));
+    card.appendChild(el('p','fws-muted','في Windows، إذا ظهر أن nc غير معروف، استخدم Ncat المرفق مع Nmap: ncat chatelaine.cylabacademy.net PORT. استبدل PORT بالرقم الموجود في وصف المثيل.'));
+    var area=el('textarea','fws-area');area.placeholder='الصق هنا خرج الاتصال وتعليمات المراحل…';
+    var button=el('button','fws-btn','🧠 اشرح التحويلات واعكس ترتيبها');
+    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.26.0 أو أحدث.');
+    card.appendChild(area);card.appendChild(button);card.appendChild(status);out.appendChild(card);
+    button.onclick=async function(){
+      if(!area.value.trim()){status.textContent='الصق رسائل الخادم أولًا حتى يشرح صقر التحويلات الموجودة فعلًا.';return;}
+      button.disabled=true;status.textContent='يجري تحليل التلميحات محليًا…';
+      try {
+        var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
+        var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
+        var v=(health.version||'0.0.0').split('.').map(Number);
+        if(v[0]<2||(v[0]===2&&v[1]<26))throw new Error('حدّث المحرك المحلي إلى 2.26.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/undo/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({challenge_text:text,transcript:area.value}),cache:'no-store'});
+        var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تحليل النص.');
+        status.textContent=data.inverse_steps.length?'رتّب صقر التحويلات المعروفة لعكسها من الأخيرة إلى الأولى.':'لم تظهر أسماء تحويلات واضحة في النص بعد.';
+        data.inverse_steps.forEach(function(step){
+          var row=el('div','fws-step open');var head=el('div','fws-step-h');
+          head.appendChild(el('span','fws-n',String(step.stage)));head.appendChild(el('strong',null,'اعكس: '+step.operation));
+          row.appendChild(head);var body=el('div','fws-step-b');body.style.display='block';
+          body.appendChild(el('p',null,step.explanation_ar));
+          if(step.inverse_command)body.appendChild(el('code','fws-path',step.inverse_command));
+          row.appendChild(body);out.appendChild(row);
+        });
+        (data.explanation_ar||[]).forEach(function(t){out.appendChild(el('p','fws-muted',t));});
+        (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
+      }catch(e){status.textContent='تعذر إكمال الشرح: '+e.message;button.disabled=false;}
+    };
+    out.scrollIntoView({behavior:'smooth',block:'start'});busy=false;return false;
+  }
   function credentialTarget(text) {
     var m=String(text||'').match(/\bnc\s+([a-z0-9.-]+\.cylabacademy\.(?:net|org))\s+(\d{1,5})\b/i);
     return m?{host:m[1].toLowerCase(),port:Number(m[2])}:null;
@@ -503,7 +548,7 @@
     card.appendChild(el('p',null,'احفظ الملف creds-dump.txt داخل C:\\Falcon\\analysis. بعد ذلك اضغط الزر ليجرب صقر سجلات الملف على خدمة هذا التحدي فقط: '+(target?target.host+':'+target.port:'الهدف المذكور مع nc في الوصف')+'.'));
     card.appendChild(el('p','fws-muted','الحد الأقصى 1500 سجل، بترتيب الملف، مع فاصل زمني قصير. لا يرسل صقر الطلب إلى رابط الملف ولا إلى أي موقع آخر، ولا يعرض كلمات المرور في النتيجة.'));
     var button=el('button','fws-btn','▶ ابدأ فحص ملف التحدي');
-    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.25.0 أو أحدث.');
+    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.26.0 أو أحدث.');
     card.appendChild(button);card.appendChild(status);out.appendChild(card);
     button.onclick=async function(){
       button.disabled=true;status.textContent='يجري فحص الملف والاتصال بخدمة CTF المحددة…';
@@ -511,7 +556,7 @@
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<25))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.25.0 ثم أعد تشغيله.');
+        if(v[0]<2||(v[0]===2&&v[1]<25))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.26.0 ثم أعد تشغيله.');
         var response=await fetch(engine+'/credential-stuffing/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
         var data=await response.json();
         if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تشغيل فحص ملف الاعتمادات.');
@@ -533,11 +578,14 @@
   global.FalconWebSessions.isHashgatePrompt = isHashgatePrompt;
   global.FalconWebSessions.isCredentialStuffingPrompt = isCredentialStuffingPrompt;
   global.FalconWebSessions.runCredentialStuffing = runCredentialStuffing;
+  global.FalconWebSessions.isUndoPrompt = isUndoPrompt;
+  global.FalconWebSessions.runUndoChallenge = runUndoChallenge;
   global.FalconWebSessionRun = async function() {
     // Route the picoCTF No FA prompt to its artifact guidance before generic
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
     var pastedText=(document.getElementById('text')||{}).value||'';
+    if(isUndoPrompt(pastedText))return runUndoChallenge(pastedText);
     if(isCredentialStuffingPrompt(pastedText))return runCredentialStuffing(pastedText);
     var url=challengeUrl();
     if(!url && isHashgatePrompt(pastedText)) {
@@ -549,13 +597,13 @@
     if(busy) return false;
     busy=true;
     var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();
-      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.25.0…';
+      out.textContent='🔎 جارٍ فحص التحدي عبر المحرك المحلي v2.26.0…';
     try {
       var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost') ? location.origin : DEFAULT_ENGINE;
       var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
       var version=(health.version||'0.0.0').split('.').map(Number);
       if(version[0]<2||(version[0]===2&&version[1]<25))
-        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.25.0 ثم أعد تشغيل المحرك.');
+        throw new Error('حدّث Falcon Local Engine إلى الإصدار 2.26.0 ثم أعد تشغيل المحرك.');
       var context = {challenge_text: document.getElementById('text').value || ''};
       var res=await audit(engine,url,context);
       if(!Array.isArray(res.steps)) throw new Error(res.error||'استجابة المحرك غير متوافقة مع صقر.');

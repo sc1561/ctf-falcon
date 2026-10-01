@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.25.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.26.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -105,6 +105,15 @@ def session_audit(url, challenge_text="", email=None):
             "احفظ creds-dump.txt في C:\\Falcon\\analysis، ثم استخدم زر فحص الملف المخصص لهذا التحدي."],
           "warnings":["لم يبدأ اختبار السجلات؛ يلزم تشغيل المسار المخصص بزر الطالب بعد حفظ الملف." if tcp_target else
                       "لم يُعثر في الوصف على أمر nc لهدف داخل نطاق cylabacademy.net/.org."]}
+    if named and named[1]=="undo":
+        return {"ok":True,"engine_version":VERSION,"target":"TCP: اتصال الطالب عبر Ncat",
+          "challenge":"Undo","analyzer":"undo","recognized":True,"success":False,"steps":[],
+          "discovered":{"protocol":"TCP","transcript_required":True},
+          "explanation_ar":["هذا تحدٍ عبر TCP؛ لا يُرسل طلب HTTP إلى رابط عشوائي.",
+            "اتصل بعنوان nc أو ncat الوارد في وصف التحدي، ثم الصق تعليمات المراحل وخرجها في خانة صقر.",
+            "سيحدد صقر التحويلات التي تدعمها القرائن، ويعرض عكسها بترتيب عكسي.",
+            "إذا لم يكن nc مثبتًا في Windows، استخدم Ncat المرفق مع Nmap."],
+          "warnings":["لم يُحلّل خرج الخدمة بعد؛ الصق نصه في أداة شرح Undo."]}
     u=urllib.parse.urlsplit(url)
     host=(u.hostname or "")
     academy=host.endswith(".cylabacademy.net") or host.endswith(".cylabacademy.org")
@@ -201,6 +210,19 @@ class H(BaseHTTPRequestHandler):
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
+        if path=="/undo/analyze":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=70000: return reply(self,413,{"ok":False,"error":"الصق نصًا لا يتجاوز 70 كيلوبايت."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                import web_session_audit, undo_challenge
+                challenge_text=str(data.get("challenge_text", ""))[:65536]
+                if not (web_session_audit.detect_named_challenge(challenge_text) or (None,None))[1]=="undo":
+                    return reply(self,400,{"ok":False,"error":"لم أتعرف على عنوان تحدي Undo في النص."})
+                result=undo_challenge.analyze(challenge_text,str(data.get("transcript", ""))[:65536])
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
+            except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})
         if path=="/no-fa/decode-session":
             n=int(self.headers.get("Content-Length","0"))
             if not 0<n<=32768: return reply(self,413,{"ok":False,"error":"Invalid request size"})
