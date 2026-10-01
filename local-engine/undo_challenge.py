@@ -253,3 +253,97 @@ def _expand_tr_set(value: str) -> str | None:
             out.append(value[i])
             i += 1
     return "".join(out)
+
+_PROMPT = re.compile(r"enter the linux command to reverse it\s*:", re.I)
+_FLAG = re.compile(r"(?:picoCTF|academy)\{[^{}\r\n]{2,200}\}")
+
+
+def _command_for_hint(hint: str) -> tuple[str, str] | None:
+    """Return only a fixed, allowlisted command explicitly named by the stage hint."""
+    value = hint or ""
+    # Transformation name first; prompts commonly end with "reverse it" which is not a `rev` hint.
+    priority = ("base64", "hex", "rot13", "case-swap", "rev")
+    by_name = {name: (pattern, command) for name, pattern, _explanation, command in _RULES}
+    for name in priority:
+        pattern, command = by_name[name]
+        if pattern.search(value):
+            return name, command
+    return None
+
+
+def solve_interactive(challenge_text: str, *, connector=socket.create_connection,
+                      max_steps: int = 12, max_bytes: int = 24576,
+                      total_timeout: float = 30.0) -> dict:
+    """Answer recognized Undo prompts with their corresponding command, stage by stage."""
+    target = parse_target(challenge_text)
+    if not target:
+        return {"ok": False, "error": "لم يُعثر على هدف nc صالح ضمن نطاق CyLab Academy في وصف Undo."}
+    host, port = target
+    transcript = bytearray()
+    pending = bytearray()
+    steps: list[dict] = []
+    deadline = time.monotonic() + total_timeout
+
+    def read_until_event(sock) -> tuple[str, str]:
+        nonlocal pending
+        while True:
+            visible = pending.decode("utf-8", "replace")
+            flag = _FLAG.search(visible)
+            prompt = _PROMPT.search(visible)
+            if flag:
+                return "flag", visible
+            if prompt:
+                end = prompt.end()
+                portion = visible[:end]
+                pending = bytearray(visible[end:].encode("utf-8", "replace"))
+                return "prompt", portion
+            if len(transcript) + len(pending) >= max_bytes or time.monotonic() >= deadline:
+                return "limit", visible
+            try:
+                chunk = sock.recv(min(2048, max_bytes - len(transcript) - len(pending)))
+            except socket.timeout:
+                if time.monotonic() >= deadline:
+                    return "limit", visible
+                continue
+            if not chunk:
+                return "closed", visible
+            pending.extend(chunk)
+
+    try:
+        with connector(target, timeout=4.0) as sock:
+            sock.settimeout(0.5)
+            for _ in range(max_steps):
+                kind, portion = read_until_event(sock)
+                transcript.extend(portion.encode("utf-8", "replace"))
+                if kind == "flag":
+                    match = _FLAG.search(portion)
+                    return {"ok": True, "target": f"{host}:{port}", "transcript": transcript.decode("utf-8", "replace"),
+                            "steps": steps, "flag": match.group(0) if match else None, "success": True}
+                if kind != "prompt":
+                    break
+                hint_matches = list(re.finditer(r"(?im)^\s*hint\s*:\s*(.+?)\s*$", portion))
+                hint = hint_matches[-1].group(1) if hint_matches else ""
+                inferred = _command_for_hint(hint)
+                if not inferred:
+                    return {"ok": True, "target": f"{host}:{port}", "transcript": transcript.decode("utf-8", "replace"),
+                            "steps": steps, "flag": None, "success": False,
+                            "needs_manual": True, "error": "لم يتعرف صقر على التحويل في هذه المرحلة؛ لم يرسل إجابة لها."}
+                operation, command = inferred
+                step_match = re.search(r"(?im)^\s*---\s*step\s+(\d+)", portion)
+                steps.append({"stage": int(step_match.group(1)) if step_match else len(steps) + 1,
+                              "operation": operation, "command": command, "hint": hint})
+                sock.sendall(command.encode("ascii") + b"\n")
+                transcript.extend(("\n[ Falcon → challenge: " + command + " ]\n").encode())
+            # Collect a short final response after the last submitted command.
+            if steps and len(steps) >= max_steps:
+                kind, portion = read_until_event(sock)
+                transcript.extend(portion.encode("utf-8", "replace"))
+            full = transcript.decode("utf-8", "replace")
+            flag = _FLAG.search(full)
+            return {"ok": True, "target": f"{host}:{port}", "transcript": full,
+                    "steps": steps, "flag": flag.group(0) if flag else None,
+                    "success": bool(flag), "needs_manual": not bool(flag),
+                    "error": None if flag else "انتهى الخرج أو المهلة قبل ظهور العلم أو تلميح مرحلة معروف."}
+    except (OSError, TimeoutError) as exc:
+        return {"ok": False, "target": f"{host}:{port}", "error": f"تعذر الاتصال بخدمة التحدي: {str(exc)[:180]}",
+                "steps": steps, "transcript": transcript.decode("utf-8", "replace")}

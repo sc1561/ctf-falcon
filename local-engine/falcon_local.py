@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.28.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.29.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -223,6 +223,22 @@ class H(BaseHTTPRequestHandler):
                 if not named or named[1]!="undo":
                     return reply(self,400,{"ok":False,"error":"لم أتعرف على وصف تحدي Undo."})
                 result=undo_challenge.connect_transcript(challenge_text)
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
+            except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})
+        if path=="/undo/solve":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=70000: return reply(self,413,{"ok":False,"error":"وصف التحدي غير صالح أو كبير جدًا."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ الحل من زر التحدي بعد مراجعة عنوان الخدمة."})
+                import web_session_audit, undo_challenge
+                challenge_text=str(data.get("challenge_text", ""))[:65536]
+                named=web_session_audit.detect_named_challenge(challenge_text)
+                if not named or named[1]!="undo":
+                    return reply(self,400,{"ok":False,"error":"لم أتعرف على وصف تحدي Undo."})
+                result=undo_challenge.solve_interactive(challenge_text)
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})

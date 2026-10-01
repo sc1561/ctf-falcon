@@ -59,3 +59,38 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_interactive_solver_answers_one_known_transform_per_stage():
+    import socket
+    import threading
+    import undo_challenge
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    received = []
+
+    def service():
+        conn, _ = listener.accept()
+        with conn:
+            conn.sendall(b"--- Step 1 ---\nCurrent flag: abc\nHint: Base64 encoded the string. Enter the Linux command to reverse it:\n")
+            received.append(conn.makefile("rb").readline().decode().strip())
+            conn.sendall(b"--- Step 2 ---\nCurrent flag: def\nHint: The string was reversed with rev. Enter the Linux command to reverse it:\n")
+            received.append(conn.makefile("rb").readline().decode().strip())
+            conn.sendall(b"picoCTF{undo_mock_success}\n")
+        listener.close()
+
+    worker = threading.Thread(target=service, daemon=True)
+    worker.start()
+    challenge = f"Undo nc chatelaine.cylabacademy.net {port}"
+    result = undo_challenge.solve_interactive(
+        challenge, connector=lambda _target, timeout: socket.create_connection(("127.0.0.1", port), timeout),
+        total_timeout=5,
+    )
+    worker.join(timeout=2)
+    assert received == ["base64 -d", "rev"]
+    assert [step["operation"] for step in result["steps"]] == ["base64", "rev"]
+    assert result["flag"] == "picoCTF{undo_mock_success}"
+    assert result["success"] is True
