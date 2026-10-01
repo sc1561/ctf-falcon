@@ -43,11 +43,14 @@ def analyze(challenge_text: str, transcript: str) -> dict:
     # Explicit command-shaped tr mappings carry more useful evidence than a generic hint.
     tr_cmd = re.search(r"(?i)\btr\s+(['\"])(.*?)\1\s+(['\"])(.*?)\3", text)
     if tr_cmd:
-        src, dst = tr_cmd.group(2), tr_cmd.group(4)
+        src, dst = _expand_tr_set(tr_cmd.group(2)), _expand_tr_set(tr_cmd.group(4))
         tr_item = next((i for i, item in enumerate(found) if item[0] == "tr-map"), None)
-        explanation = (f"ظهر أمر `tr` بمجموعتي المصدر والوجهة بطولَي {len(src)} و{len(dst)}. "
+        src_len, dst_len = len(src or ""), len(dst or "")
+        explanation = (f"ظهر أمر `tr` بمجموعتي المصدر والوجهة بطولَي {src_len} و{dst_len}. "
                        "يمكن عكسه بتبديل المجموعتين إذا لم تتكرر محارف المصدر ولم توجد خيارات حذف/ضغط.")
-        inverse = f"tr '{dst}' '{src}'" if len(src) == len(dst) and len(set(src)) == len(src) else None
+        invertible = (src is not None and dst is not None and src_len == dst_len and
+                      len(set(src)) == src_len and len(set(dst)) == dst_len)
+        inverse = f"tr '{tr_cmd.group(4)}' '{tr_cmd.group(2)}'" if invertible else None
         entry = ("tr-map", explanation, inverse or "غير قابل للعكس آليًا: افحص التكرار وخيارات tr")
         if tr_item is None:
             found.append(entry)
@@ -74,3 +77,20 @@ def analyze(challenge_text: str, transcript: str) -> dict:
         ],
         "warnings": caution,
     }
+
+
+def _expand_tr_set(value: str) -> str | None:
+    """Expand basic ascending ASCII ranges (for example A-Za-z) in a tr set."""
+    out: list[str] = []
+    i = 0
+    while i < len(value):
+        if i + 2 < len(value) and value[i + 1] == "-":
+            start, end = ord(value[i]), ord(value[i + 2])
+            if start > end:
+                return None
+            out.extend(chr(code) for code in range(start, end + 1))
+            i += 3
+        else:
+            out.append(value[i])
+            i += 1
+    return "".join(out)

@@ -15,8 +15,12 @@ def main():
 
     mapped = undo.analyze("Undo", "The original string was translated using tr 'abc' 'xyz'")
     assert mapped["inverse_steps"][0]["inverse_command"] == "tr 'xyz' 'abc'", mapped
+    rot_command = undo.analyze("Undo", "Run tr 'A-Za-z' 'N-ZA-Mn-za-m' on the text")
+    assert rot_command["inverse_steps"][0]["inverse_command"] == "tr 'N-ZA-Mn-za-m' 'A-Za-z'", rot_command
     lossy = undo.analyze("Undo", "The string was translated using tr 'aabc' 'xyzz'")
     assert "غير قابل للعكس" in lossy["inverse_steps"][0]["inverse_command"], lossy
+    collision = undo.analyze("Undo", "tr 'ab' 'cc'")
+    assert "غير قابل للعكس" in collision["inverse_steps"][0]["inverse_command"], collision
 
     empty = undo.analyze("Undo", "  ")
     assert not empty["ok"]
