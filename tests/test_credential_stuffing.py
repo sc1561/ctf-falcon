@@ -64,5 +64,26 @@ def main():
     print("Credential Stuffing bounded TCP solver test passed")
 
 
+def test_parallelism_is_capped_and_progress_counts_batches():
+    import time
+    mock = MockService()
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "creds-dump.txt"
+            path.write_text("wrong1;pair\nwrong2;pair\nwrong3;pair\nwrong4;pair\n", encoding="utf-8")
+            progress = []
+            def connector(address, timeout):
+                return socket.create_connection(mock.address, timeout)
+            result = cs.solve(path, "chatelaine.cylabacademy.net", 34707,
+                              connector=connector, delay=0, parallelism=99,
+                              progress=lambda attempts, total: progress.append((attempts, total)))
+            assert not result["success"] and result["attempts"] == 4
+            assert progress[0] == (0, 4) and progress[-1] == (4, 4)
+            assert cs.MAX_PARALLEL == 3
+    finally:
+        mock.close()
+
+
 if __name__ == "__main__":
     main()
+    test_parallelism_is_capped_and_progress_counts_batches()
