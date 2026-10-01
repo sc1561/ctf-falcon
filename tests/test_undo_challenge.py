@@ -4,9 +4,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "local-engine"))
 import undo_challenge as undo
+import web_session_audit
 
 
 def main():
+    announcement = ("Can you reverse a series of Linux text transformations to recover the original flag?\n"
+        "Start searching for the flag here nc chatelaine.cylabacademy.net 40561\nHints\n"
+        "For text translation and character replacement, see\ntr\ncommand documentation\n"
+        "https://man7.org/linux/man-pages/man1/tr.1.html")
+    assert web_session_audit.detect_named_challenge(announcement) == ("Undo", "undo")
+    assert undo.parse_target(announcement) == ("chatelaine.cylabacademy.net", 40561)
+    assert undo.parse_target("Undo\nnc attacker.example 40561") is None
+    class FakeSocket:
+        def __init__(self): self.sent = 0
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def settimeout(self, _): pass
+        def recv(self, _):
+            if self.sent: return b""
+            self.sent = 1
+            return b"Stage 1: ROT13\n"
+    def connector(address, timeout):
+        assert address == ("chatelaine.cylabacademy.net", 40561) and timeout == 4.0
+        return FakeSocket()
+    banner = undo.connect_transcript(announcement, connector=connector)
+    assert banner["ok"] and banner["transcript"] == "Stage 1: ROT13" and banner["sent_bytes"] == 0, banner
+
     result = undo.analyze("Undo\npicoCTF", "Stage 1: encoded with ROT13\nStage 2: reversed using rev")
     assert result["ok"] and result["analyzer"] == "undo", result
     assert [s["operation"] for s in result["inverse_steps"]] == ["rev", "rot13"], result

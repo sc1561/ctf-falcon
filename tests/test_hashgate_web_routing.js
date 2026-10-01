@@ -22,6 +22,16 @@ assert.equal(window.FalconWebSessions.isHashgatePrompt(textarea.value), true);
 textarea.value = 'Jro Rkcybvgngvba Zrqvhz';
 assert.equal(window.FalconWebSessions.isHashgatePrompt(textarea.value), false);
 
+textarea.value = `Can you reverse a series of Linux text transformations to recover the original flag?
+Start searching for the flag here nc chatelaine.cylabacademy.net 40561
+For text translation and character replacement, see
+tr
+command documentation
+https://man7.org/linux/man-pages/man1/tr.1.html`;
+assert.equal(window.FalconWebSessions.isUndoPrompt(textarea.value), true);
+assert.equal(window.FalconWebSessions.undoTarget(textarea.value).host, 'chatelaine.cylabacademy.net');
+assert.equal(window.FalconWebSessions.undoTarget(textarea.value).port, 40561);
+
 (async function () {
   textarea.value = 'Hashgate\nWeb Exploitation\nThe URL is missing';
   await window.FalconWebSessionRun();

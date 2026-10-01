@@ -1206,6 +1206,12 @@ def detect_named_challenge(challenge_text: str | None):
         title = re.compile(r"(?im)^\s*(?:#{1,6}\s*)?" + re.escape(needle) + r"(?=\s|$|[—-])")
         if title.search(text):
             return _STATIC_CHALLENGES[needle]
+    # The Undo lab announcement may be pasted without its title. Require its
+    # distinctive Linux-transformation wording, a scoped nc service, and the tr hint.
+    if (re.search(r"reverse\s+a\s+series\s+of\s+Linux\s+text\s+transformations", text, re.I) and
+            re.search(r"\bnc\s+[a-z0-9.-]+\.cylabacademy\.(?:net|org)\s+\d{1,5}\b", text, re.I) and
+            re.search(r"\btr\b.{0,120}(?:command\s+documentation|man7\.org)|(?:documentation|man7\.org).{0,120}\btr\b", text, re.I | re.S)):
+        return _STATIC_CHALLENGES["undo"]
     return None
 
 

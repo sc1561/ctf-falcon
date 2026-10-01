@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import socket
+import time
 
 
 _RULES = (
@@ -20,6 +22,57 @@ _RULES = (
      "تحويل `tr` يُعكس بتبديل مجموعتي المحارف فقط إذا كان الربط واحدًا لواحد ولم تُحذف أو تُدمج محارف. افحص الأمر والمجموعتين أولًا.",
      "tr 'مجموعة_الناتج' 'مجموعة_الأصل'"),
 )
+
+_NC_TARGET = re.compile(r"(?i)\bnc\s+([a-z0-9.-]+)\s+(\d{1,5})\b")
+_ALLOWED_SUFFIXES = (".cylabacademy.net", ".cylabacademy.org")
+
+
+def parse_target(challenge_text: str) -> tuple[str, int] | None:
+    """Extract only explicitly posted CyLab Academy challenge targets."""
+    match = _NC_TARGET.search(challenge_text or "")
+    if not match:
+        return None
+    host = match.group(1).lower().rstrip(".")
+    try:
+        port = int(match.group(2))
+    except ValueError:
+        return None
+    if (not any(host.endswith(suffix) and host[:-len(suffix)] for suffix in _ALLOWED_SUFFIXES)
+            or ".." in host or not 1 <= port <= 65535):
+        return None
+    return host, port
+
+
+def connect_transcript(challenge_text: str, *, connector=socket.create_connection,
+                       max_bytes: int = 12288, read_window: float = 1.2) -> dict:
+    """Read the initial CTF service banner only; never send data to the service."""
+    target = parse_target(challenge_text)
+    if not target:
+        return {"ok": False, "error": "لم يُعثر على هدف nc صالح ضمن نطاق CyLab Academy في وصف Undo."}
+    host, port = target
+    data = bytearray()
+    try:
+        with connector(target, timeout=4.0) as sock:
+            sock.settimeout(0.4)
+            deadline = time.monotonic() + read_window
+            while len(data) < max_bytes and time.monotonic() < deadline:
+                try:
+                    chunk = sock.recv(min(2048, max_bytes - len(data)))
+                except socket.timeout:
+                    if data:
+                        break
+                    continue
+                if not chunk:
+                    break
+                data.extend(chunk)
+    except (OSError, TimeoutError) as exc:
+        return {"ok": False, "target": f"{host}:{port}", "error": f"تعذر الاتصال بخدمة التحدي: {str(exc)[:180]}"}
+    transcript = data.decode("utf-8", "replace").strip()
+    if not transcript:
+        return {"ok": False, "target": f"{host}:{port}",
+                "error": "اتصل صقر بالخدمة، لكنها لم ترسل نصًا تلقائيًا. قد تنتظر إدخالًا أوليًا؛ استخدم Ncat والصق ما يظهر."}
+    return {"ok": True, "target": f"{host}:{port}", "transcript": transcript,
+            "bytes_read": len(data), "sent_bytes": 0}
 
 
 def analyze(challenge_text: str, transcript: str) -> dict:
