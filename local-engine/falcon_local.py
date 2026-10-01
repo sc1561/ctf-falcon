@@ -9,7 +9,7 @@ import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.32.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.33.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -308,6 +308,23 @@ class H(BaseHTTPRequestHandler):
                 if not (web_session_audit.detect_named_challenge(challenge_text) or (None,None))[1]=="undo":
                     return reply(self,400,{"ok":False,"error":"لم أتعرف على عنوان تحدي Undo في النص."})
                 result=undo_challenge.analyze(challenge_text,str(data.get("transcript", ""))[:65536])
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
+            except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})
+        if path=="/secret-box/solve":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=16000: return reply(self,413,{"ok":False,"error":"وصف التحدي غير صالح أو كبير جدًا."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"راجع عنوان المثيل ثم ابدأ الحل من زر Secret Box."})
+                challenge_text=str(data.get("challenge_text",""))[:12000]
+                import web_session_audit, secret_box
+                named=web_session_audit.detect_named_challenge(challenge_text)
+                described=bool(re.search(r"this secret box is designed to conceal your secrets",challenge_text,re.I))
+                if not ((named and named[1]=="secret-box") or described):
+                    return reply(self,400,{"ok":False,"error":"لم أتعرف على وصف تحدي Secret Box."})
+                result=secret_box.solve(challenge_text)
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})

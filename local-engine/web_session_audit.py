@@ -1199,6 +1199,7 @@ def solve_hashgate(client, origin, recon, steps, bodies, record, flag_patterns) 
 
 def detect_named_challenge(challenge_text: str | None):
     text = challenge_text or ""
+    text = re.sub(r"(https?)\\:", r"\1:", text, flags=re.I)
     # Challenge text is pasted with its title on a standalone first line. Match
     # titles at line starts to avoid treating prose like "this includes ..." as
     # the legacy challenge named Includes.
@@ -1212,6 +1213,9 @@ def detect_named_challenge(challenge_text: str | None):
             re.search(r"\bnc\s+[a-z0-9.-]+\.cylabacademy\.(?:net|org)\s+\d{1,5}\b", text, re.I) and
             re.search(r"\btr\b.{0,120}(?:command\s+documentation|man7\.org)|(?:documentation|man7\.org).{0,120}\btr\b", text, re.I | re.S)):
         return _STATIC_CHALLENGES["undo"]
+    if (re.search(r"this secret box is designed to conceal your secrets", text, re.I) and
+            re.search(r"https?://[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?/", text, re.I)):
+        return _STATIC_CHALLENGES["secret box"]
     return None
 
 
