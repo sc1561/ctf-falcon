@@ -261,6 +261,14 @@ _FLAG = re.compile(r"(?:picoCTF|academy)\{[^{}\r\n]{2,200}\}")
 def _command_for_hint(hint: str) -> tuple[str, str] | None:
     """Return only a fixed, allowlisted command explicitly named by the stage hint."""
     value = hint or ""
+    # If the service gives a concrete reversible tr mapping, reverse those sets safely.
+    tr_match = re.search(r"(?i)\btr\s+(['\"])([A-Za-z0-9_ -]+)\1\s+(['\"])([A-Za-z0-9_ -]+)\3", value)
+    if tr_match:
+        left, right = _expand_tr_set(tr_match.group(2)), _expand_tr_set(tr_match.group(4))
+        if (left is not None and right is not None and len(left) == len(right) and
+                len(set(left)) == len(left) and len(set(right)) == len(right)):
+            return "tr-map", f"tr '{tr_match.group(4)}' '{tr_match.group(2)}'"
+        return None
     # Transformation name first; prompts commonly end with "reverse it" which is not a `rev` hint.
     priority = ("base64", "hex", "rot13", "case-swap", "rev")
     by_name = {name: (pattern, command) for name, pattern, _explanation, command in _RULES}

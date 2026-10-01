@@ -94,3 +94,10 @@ def test_interactive_solver_answers_one_known_transform_per_stage():
     assert [step["operation"] for step in result["steps"]] == ["base64", "rev"]
     assert result["flag"] == "picoCTF{undo_mock_success}"
     assert result["success"] is True
+
+
+def test_interactive_solver_inverts_only_explicit_bijective_tr_mapping():
+    import undo_challenge
+    assert undo_challenge._command_for_hint("Applied tr 'A-Za-z' 'N-ZA-Mn-za-m'.") == (
+        "tr-map", "tr 'N-ZA-Mn-za-m' 'A-Za-z'")
+    assert undo_challenge._command_for_hint("Applied tr 'abc' 'xxx'.") is None
