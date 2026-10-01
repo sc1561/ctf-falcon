@@ -9,7 +9,7 @@ import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.37.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.38.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -196,6 +196,21 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path=self.path.split("?",1)[0]
+        if path=="/stego/analyze":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=48*1024*1024: return reply(self,413,{"ok":False,"error":"أرسل ملفًا أو ZIP بحجم لا يتجاوز 48 ميغابايت بعد ترميز النقل."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ الفحص من زر التحليل بعد اختيار الملف."})
+                blob=base64.b64decode(data.get("file_b64",""),validate=True)
+                if len(blob)>32*1024*1024: return reply(self,413,{"ok":False,"error":"حجم الملف المفكوك أكبر من 32 ميغابايت."})
+                import arabic_stego
+                result=arabic_stego.analyze_arabic_challenge(blob,Path(data.get("filename","upload.bin")).name,
+                    str(data.get("challenge_text",""))[:24000],find_steghide())
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
+            except Exception as e: return reply(self,422,{"ok":False,"error":"تعذر تحليل التحدي العربي محليًا","detail":str(e)[:300]})
         if path=="/crypto/analyze":
             n=int(self.headers.get("Content-Length","0"))
             if not 0<n<=24000: return reply(self,413,{"ok":False,"error":"ألصق وصف تحدي Cryptography صالحًا (بحد أقصى 24 كيلوبايت)."})
