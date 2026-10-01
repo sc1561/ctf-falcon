@@ -9,7 +9,7 @@ import time
 
 
 _RULES = (
-    ("rev", re.compile(r"\brev(?:erse|ersal|ersing)?\b|reverse\s+(?:the\s+)?(?:string|text)", re.I),
+    ("rev", re.compile(r"\brev(?:erse|ersed|ersal|ersing)?\b|reverse\s+(?:the\s+)?(?:string|text)", re.I),
      "`rev` يقلب ترتيب المحارف؛ عكسه `rev` مرة أخرى." , "rev"),
     ("rot13", re.compile(r"\brot\s*[- ]?13\b|rotate.{0,20}13|13\s+positions?", re.I),
      "ROT13 يعكس نفسه؛ طبّق ROT13 مرة أخرى باستخدام `tr 'A-Za-z' 'N-ZA-Mn-za-m'`.",
@@ -82,6 +82,8 @@ def analyze(challenge_text: str, transcript: str) -> dict:
     text = (transcript or "").strip()
     if not text:
         return {"ok": False, "error": "الصق نص التحدي أو رسائل المراحل التي ظهرت بعد الاتصال."}
+    interactive = ("text transformations challenge" in text.lower() and
+                   bool(re.search(r"(?im)^\s*---\s*step\s+\d+", text)))
     found: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     # Process lines in displayed order so the inverse recipe can be reversed safely.
@@ -122,7 +124,12 @@ def analyze(challenge_text: str, transcript: str) -> dict:
         caution.append("لم أتعرف على تحويل محدد. أرسل نص المراحل كاملًا، مع ترتيبها وأي أوامر أو تلميحات يعرضها الخادم.")
     if any(x[0] == "tr-map" for x in found):
         caution.append("لا يمكن عكس كل تحويلات tr: الحذف، ضغط التكرار، أو استبدال عدة محارف بمحرف واحد قد يفقد معلومات.")
-    recovery = _recover(text, found)
+    # Each interactive stage contains a different Current flag; transforming them all
+    # together creates a false recovered string. The live solver handles each prompt.
+    recovery = ({"candidates": 0, "recovery_steps": [], "recovered_text": None, "flag": None}
+                if interactive else _recover(text, found))
+    if interactive:
+        caution.append("هذا سجل تفاعلي متعدد المراحل؛ لا تطبق كل التحويلات على أول نص. استخدم زر الاتصال والحل التفاعلي ليعالج صقر كل تلميح عند ظهوره.")
     if recovery.get("flag"):
         caution.append("استخرج صقر العلم محليًا؛ راجعه ثم انسخه إلى منصة التحدي بنفسك.")
     elif not recovery.get("candidates"):
@@ -258,9 +265,32 @@ _PROMPT = re.compile(r"enter the linux command to reverse it\s*:", re.I)
 _FLAG = re.compile(r"(?:picoCTF|academy)\{[^{}\r\n]{2,200}\}")
 
 
+_TR_WORDS = {
+    "underscore": "_", "underscores": "_",
+    "dash": "-", "dashes": "-", "hyphen": "-", "hyphens": "-",
+    "curly brace": "{}", "curly braces": "{}",
+    "parenthesis": "()", "parentheses": "()", "parentheses": "()",
+    "round brackets": "()", "round bracket": "()",
+    "square brackets": "[]", "square bracket": "[]",
+    "brackets": "[]", "bracket": "[]",
+    "space": " ", "spaces": " ",
+}
+
+
 def _command_for_hint(hint: str) -> tuple[str, str] | None:
     """Return only a fixed, allowlisted command explicitly named by the stage hint."""
     value = hint or ""
+    # The challenge commonly describes an exact replacement in words, not as a tr command.
+    replaced = re.search(
+        r"(?i)\breplac(?:e|ed|ing)\s+(.+?)\s+with\s+(.+?)(?:[.!?]|$)", value
+    )
+    if replaced:
+        source_word = re.sub(r"\s+", " ", replaced.group(1).strip().lower())
+        dest_word = re.sub(r"\s+", " ", replaced.group(2).strip().lower())
+        source, destination = _TR_WORDS.get(source_word), _TR_WORDS.get(dest_word)
+        if source is None or destination is None or len(source) != len(destination):
+            return None
+        return "tr-map", f"tr '{destination}' '{source}'"
     # If the service gives a concrete reversible tr mapping, reverse those sets safely.
     tr_match = re.search(r"(?i)\btr\s+(['\"])([A-Za-z0-9_ -]+)\1\s+(['\"])([A-Za-z0-9_ -]+)\3", value)
     if tr_match:

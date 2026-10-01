@@ -75,10 +75,19 @@ def test_interactive_solver_answers_one_known_transform_per_stage():
     def service():
         conn, _ = listener.accept()
         with conn:
-            conn.sendall(b"--- Step 1 ---\nCurrent flag: abc\nHint: Base64 encoded the string. Enter the Linux command to reverse it:\n")
-            received.append(conn.makefile("rb").readline().decode().strip())
-            conn.sendall(b"--- Step 2 ---\nCurrent flag: def\nHint: The string was reversed with rev. Enter the Linux command to reverse it:\n")
-            received.append(conn.makefile("rb").readline().decode().strip())
+            commands = [
+                ("Base64 encoded the string.", "base64 -d"),
+                ("Reversed the text.", "rev"),
+                ("Replaced underscores with dashes.", "tr '-' '_'"),
+                ("Replaced curly braces with parentheses.", "tr '()' '{}'"),
+                ("Applied ROT13 to letters.", "tr 'A-Za-z' 'N-ZA-Mn-za-m'"),
+            ]
+            reader = conn.makefile("rb")
+            for idx, (hint, expected) in enumerate(commands, 1):
+                conn.sendall(f"--- Step {idx} ---\nCurrent flag: transformed-{idx}\nHint: {hint}\nEnter the Linux command to reverse it: ".encode())
+                answer = reader.readline().decode().strip()
+                received.append(answer)
+                assert answer == expected
             conn.sendall(b"picoCTF{undo_mock_success}\n")
         listener.close()
 
@@ -90,8 +99,10 @@ def test_interactive_solver_answers_one_known_transform_per_stage():
         total_timeout=5,
     )
     worker.join(timeout=2)
-    assert received == ["base64 -d", "rev"]
-    assert [step["operation"] for step in result["steps"]] == ["base64", "rev"]
+    assert received == ["base64 -d", "rev", "tr '-' '_'", "tr '()' '{}'",
+                        "tr 'A-Za-z' 'N-ZA-Mn-za-m'"]
+    assert [step["operation"] for step in result["steps"]] == [
+        "base64", "rev", "tr-map", "tr-map", "rot13"]
     assert result["flag"] == "picoCTF{undo_mock_success}"
     assert result["success"] is True
 
@@ -101,3 +112,20 @@ def test_interactive_solver_inverts_only_explicit_bijective_tr_mapping():
     assert undo_challenge._command_for_hint("Applied tr 'A-Za-z' 'N-ZA-Mn-za-m'.") == (
         "tr-map", "tr 'N-ZA-Mn-za-m' 'A-Za-z'")
     assert undo_challenge._command_for_hint("Applied tr 'abc' 'xxx'.") is None
+
+
+def test_interactive_hint_wording_and_manual_log_guard():
+    import undo_challenge
+    assert undo_challenge._command_for_hint("Reversed the text.") == ("rev", "rev")
+    assert undo_challenge._command_for_hint("Replaced underscores with dashes.") == (
+        "tr-map", "tr '-' '_'")
+    assert undo_challenge._command_for_hint("Replaced curly braces with parentheses.") == (
+        "tr-map", "tr '()' '{}'")
+    result = undo_challenge.analyze(
+        "Undo nc chatelaine.cylabacademy.net 1",
+        "===Welcome to the Text Transformations Challenge!===\n--- Step 1 ---\nCurrent flag: abc\n"
+        "Hint: Base64 encoded the string.\n--- Step 2 ---\nCurrent flag: def\nHint: Reversed the text."
+    )
+    assert result["recovered_text"] is None
+    assert result["flag"] is None
+    assert any("سجل تفاعلي" in warning for warning in result["warnings"])

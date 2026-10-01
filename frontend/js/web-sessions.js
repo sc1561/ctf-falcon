@@ -521,24 +521,25 @@
     var area=el('textarea','fws-area');area.placeholder='الصق هنا خرج الاتصال وتعليمات المراحل…';
     var connect=el('button','fws-btn','🔌 اتصل واجلب خرج الخدمة');
     var button=el('button','fws-btn','🧠 اشرح التحويلات واعكس ترتيبها');
-    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.29.0 أو أحدث.');
+    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.30.0 أو أحدث.');
     card.appendChild(connect);card.appendChild(area);card.appendChild(button);card.appendChild(status);out.appendChild(card);
     connect.onclick=async function(){
       if(!target){status.textContent='لم يجد صقر هدف nc في وصف التحدي.';return;}
-      connect.disabled=true;status.textContent='يتصل بالخدمة ويجيب عن التحويلات المعروفة مرحلةً مرحلة…';
+      connect.disabled=true;button.disabled=true;status.textContent='يتصل بالخدمة ويجيب عن التحويلات المعروفة مرحلةً مرحلة…';
       try {
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<29))throw new Error('حدّث المحرك المحلي إلى 2.29.0 ثم أعد تشغيله.');
+        if(v[0]<2||(v[0]===2&&v[1]<30))throw new Error('حدّث المحرك المحلي إلى 2.30.0 ثم أعد تشغيله.');
         var response=await fetch(engine+'/undo/solve',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
         var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر حل مراحل الخدمة.');
-        area.value=data.transcript||'';status.textContent=data.flag?'✅ أكمل صقر المراحل واستخرج العلم من '+data.target+'.':(data.error||'وصل صقر إلى نهاية الخرج دون ظهور العلم.');
+        area.value=data.transcript||'';area.readOnly=true;
+        status.textContent=data.flag?'✅ أكمل صقر المراحل واستخرج العلم من '+data.target+'.':(data.error||'وصل صقر إلى نهاية الخرج دون ظهور العلم.');
         (data.steps||[]).forEach(function(step){var row=el('div','fws-step open');var head=el('div','fws-step-h');head.appendChild(el('span','fws-n',String(step.stage)));head.appendChild(el('strong',null,'التحويل: '+step.operation));row.appendChild(head);var body=el('div','fws-step-b');body.style.display='block';body.appendChild(el('p',null,'أرسل صقر الأمر التالي كإجابة لمرحلة التحدي:'));body.appendChild(el('code','fws-path',step.command));row.appendChild(body);out.appendChild(row);});
         if(data.flag){var flagBox=el('div','fws-flag');flagBox.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var flagRow=el('div','fws-row');flagRow.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};flagRow.appendChild(copy);flagBox.appendChild(flagRow);out.appendChild(flagBox);}
         var details=el('details','fws-card');details.appendChild(el('summary',null,'عرض سجل الجلسة'));var raw=el('pre','fws-observed');raw.textContent=data.transcript||'';details.appendChild(raw);out.appendChild(details);
-      }catch(e){status.textContent='تعذر الحل تلقائيًا: '+e.message+' — يمكنك استخدام أمر Ncat أعلاه ولصق الخرج هنا.';connect.disabled=false;}
+      }catch(e){status.textContent='تعذر الحل تلقائيًا: '+e.message+' — يمكنك استخدام أمر Ncat أعلاه ولصق الخرج هنا.';connect.disabled=false;button.disabled=false;}
     };
     button.onclick=async function(){
       if(!area.value.trim()){status.textContent='الصق رسائل الخادم أولًا حتى يشرح صقر التحويلات الموجودة فعلًا.';return;}
@@ -547,7 +548,7 @@
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<29))throw new Error('حدّث المحرك المحلي إلى 2.29.0 ثم أعد تشغيله.');
+        if(v[0]<2||(v[0]===2&&v[1]<30))throw new Error('حدّث المحرك المحلي إلى 2.30.0 ثم أعد تشغيله.');
         var response=await fetch(engine+'/undo/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({challenge_text:text,transcript:area.value}),cache:'no-store'});
         var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تحليل النص.');
