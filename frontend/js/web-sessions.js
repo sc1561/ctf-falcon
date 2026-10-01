@@ -508,6 +508,12 @@
     return /this secret box is designed to conceal your secrets/i.test(text) &&
       /https?:\/\/[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?\//i.test(text);
   }
+  function isSqlMap1Prompt(text) {
+    text=String(text||'').replace(/(https?)\\:/gi,'$1:');
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?Sql\s+Map1(?=\s|$|[—-])/im.test(text) &&
+      /md5/i.test(text) && /search/i.test(text) &&
+      /https?:\/\/[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?\//i.test(text);
+  }
   function isFoolLockoutPrompt(text) {
     text=String(text||'').replace(/(https?)\\:/gi,'$1:');
     return /(?:^|\n)\s*(?:#{1,6}\s*)?Fool\s+the\s+Lockout(?=\s|$|[—-])/im.test(text) &&
@@ -615,6 +621,44 @@
         (data.explanation_ar||[]).forEach(function(line){out.appendChild(el('p','fws-muted',line));});
         if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var r=el('div','fws-row');r.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};r.appendChild(copy);box.appendChild(r);out.appendChild(box);}
         (data.warnings||[]).forEach(function(w){out.appendChild(el('p','fws-note',w));});
+      }catch(e){status.textContent='تعذر الحل: '+e.message;button.disabled=false;}
+    };
+    busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});return false;
+  }
+  async function runSqlMap1Challenge(text) {
+    if(busy)return false;
+    busy=true;
+    var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();out.innerHTML='';
+    var card=el('div','fws-card');card.appendChild(el('div','fws-h','🗄️ تحدي Sql Map1'));
+    card.appendChild(el('p',null,'يفحص صقر نموذج الدخول والبحث في المثيل، ينشئ حسابًا تدريبيًا، ثم يختبر حقن SQL المحدود لاستخراج تجزئة حساب ctf-player ومطابقتها محليًا.'));
+    card.appendChild(el('p','fws-muted','يرسل صقر الطلبات إلى مثيل Cylab Academy المذكور فقط. لا يرسل تجزئات إلى CrackStation أو خدمة خارجية ولا يعرض كلمات المرور أو معرّفات الجلسات.'));
+    var button=el('button','fws-btn','▶ حلّل البحث واستخرج العلم');var status=el('div','fws-note','يتطلب Falcon Local Engine 2.35.0 أو أحدث.');
+    card.appendChild(button);card.appendChild(status);out.appendChild(card);
+    button.onclick=async function(){
+      button.disabled=true;status.textContent='يتحقق صقر من الهدف ويبدأ فحص النماذج…';
+      try {
+        var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
+        var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
+        var v=(health.version||'0.0.0').split('.').map(Number);
+        if(v[0]<2||(v[0]===2&&v[1]<35))throw new Error('حدّث المحرك المحلي إلى 2.35.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/sql-map1/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
+        var started=await response.json();if(!response.ok||!started.ok)throw new Error(started.error||'تعذر بدء تحليل Sql Map1.');
+        var data=null,deadline=Date.now()+8*60*1000;
+        while(Date.now()<deadline){
+          await new Promise(function(resolve){setTimeout(resolve,900);});
+          var poll=await fetch(engine+'/sql-map1/status?job_id='+encodeURIComponent(started.job_id),{cache:'no-store'});
+          var job=await poll.json();if(!poll.ok||!job.ok)throw new Error(job.error||'انقطع تحديث حالة التحليل.');
+          if(job.state==='running'){status.textContent=job.message||'يجري فحص البحث…';continue;}
+          data=job.result;break;
+        }
+        if(!data)throw new Error('تجاوز التحليل المهلة؛ تحقق من اتصال المثيل ثم أعد المحاولة.');
+        if(!data.ok)throw new Error(data.error||'تعذر إكمال تحليل Sql Map1.');
+        status.textContent=data.success?'✅ استخرج صقر العلم من صفحة السر.':'اكتمل التحليل دون استخراج كلمة مرور محليًا.';
+        (data.explanation_ar||[]).forEach(function(t){out.appendChild(el('p','fws-muted',t));});
+        (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
+        if(data.discovered){var d=el('div','fws-card');d.appendChild(el('div','fws-h','🔎 ما اكتشفه صقر'));d.appendChild(el('p',null,'SQLite · UNION SQLi · '+data.discovered.columns+' أعمدة · MD5 · المستخدم المستهدف '+data.discovered.account));out.appendChild(d);}
+        if(data.steps&&data.steps.length){var log=el('details','fws-card');log.appendChild(el('summary',null,'عرض خطوات التحليل'));data.steps.forEach(function(s,i){log.appendChild(el('p','fws-muted',(i+1)+'. '+s.method+' '+s.path+' — HTTP '+s.status+' — '+s.detail));});out.appendChild(log);}
+        if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};row.appendChild(copy);box.appendChild(row);box.appendChild(el('div','fws-muted','انسخ العلم بنفسك إلى منصة المسابقة.'));out.appendChild(box);}
       }catch(e){status.textContent='تعذر الحل: '+e.message;button.disabled=false;}
     };
     busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});return false;
@@ -733,6 +777,7 @@
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
     var pastedText=(document.getElementById('text')||{}).value||'';
+    if(isSqlMap1Prompt(pastedText))return runSqlMap1Challenge(pastedText);
     if(isFoolLockoutPrompt(pastedText))return runFoolLockoutChallenge(pastedText);
     if(isUndoPrompt(pastedText))return runUndoChallenge(pastedText);
     if(isSecretBoxPrompt(pastedText))return runSecretBoxChallenge(pastedText);
