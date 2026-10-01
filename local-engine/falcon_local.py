@@ -5,10 +5,11 @@ import urllib.request, urllib.parse, http.cookiejar
 from http.cookies import SimpleCookie
 from email.utils import parsedate_to_datetime
 import time
+import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.30.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.31.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -16,6 +17,8 @@ ANALYSIS_ROOT=FALCON_HOME/"analysis"
 ANALYSIS_ROOT.mkdir(parents=True,exist_ok=True)
 ENGINE_DIR=Path(__file__).resolve().parent
 WEB_ROOT=ENGINE_DIR.parent if ENGINE_DIR.name.lower()=="local-engine" else ENGINE_DIR
+_CREDENTIAL_JOBS={}
+_CREDENTIAL_JOBS_LOCK=threading.Lock()
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\steghide\steghide.exe",
@@ -144,6 +147,13 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         path=self.path.split("?",1)[0]
         if path=="/health": return reply(self,200,status())
+        if path=="/credential-stuffing/status":
+            job_id=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("job_id",[""])[0]
+            with _CREDENTIAL_JOBS_LOCK:
+                job=_CREDENTIAL_JOBS.get(job_id)
+                snapshot=dict(job) if job else None
+            if not snapshot: return reply(self,404,{"ok":False,"error":"جلسة الفحص غير موجودة أو انتهت."})
+            return reply(self,200,snapshot)
         if path=="/engine":
             b=dashboard().encode("utf-8"); self.send_response(200)
             self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Content-Length",str(len(b)))
@@ -209,6 +219,52 @@ class H(BaseHTTPRequestHandler):
                 result=credential_stuffing.solve(ANALYSIS_ROOT/"creds-dump.txt",*target)
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
+            except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
+        if path=="/credential-stuffing/start":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=8192: return reply(self,413,{"ok":False,"error":"وصف التحدي غير صالح أو كبير جدًا."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ الفحص من الزر بعد مراجعة الملف والهدف."})
+                import web_session_audit, credential_stuffing
+                challenge_text=str(data.get("challenge_text", ""))[:65536]
+                named=web_session_audit.detect_named_challenge(challenge_text)
+                target=credential_stuffing.parse_target(challenge_text)
+                if not named or named[1]!="credential-stuffing" or not target:
+                    return reply(self,400,{"ok":False,"error":"يلزم وصف Credential Stuffing وأمر nc صالح ضمن نطاق Cylab Academy."})
+                job_id=uuid.uuid4().hex
+                host,port=target
+                with _CREDENTIAL_JOBS_LOCK:
+                    if len(_CREDENTIAL_JOBS)>64:
+                        for old_id,old_job in list(_CREDENTIAL_JOBS.items()):
+                            if old_job.get("state") in ("done","error"):
+                                _CREDENTIAL_JOBS.pop(old_id,None)
+                            if len(_CREDENTIAL_JOBS)<=32: break
+                    _CREDENTIAL_JOBS[job_id]={"ok":True,"job_id":job_id,"state":"running",
+                        "attempts":0,"entries":0,"target":f"{host}:{port}","result":None}
+                def run_job():
+                    def update_progress(attempts,entries):
+                        with _CREDENTIAL_JOBS_LOCK:
+                            current=_CREDENTIAL_JOBS.get(job_id)
+                            if current:
+                                current["attempts"]=attempts;current["entries"]=entries
+                    try:
+                        result=credential_stuffing.solve(ANALYSIS_ROOT/"creds-dump.txt",host,port,progress=update_progress)
+                        with _CREDENTIAL_JOBS_LOCK:
+                            current=_CREDENTIAL_JOBS.get(job_id)
+                            if current:
+                                current["state"]="done" if result.get("ok") else "error"
+                                current["attempts"]=result.get("attempts",current["attempts"])
+                                current["entries"]=result.get("entries",current["entries"])
+                                current["result"]=result
+                    except Exception as exc:
+                        with _CREDENTIAL_JOBS_LOCK:
+                            current=_CREDENTIAL_JOBS.get(job_id)
+                            if current:
+                                current["state"]="error";current["result"]={"ok":False,"error":str(exc)[:300]}
+                threading.Thread(target=run_job,name="falcon-credential-stuffing",daemon=True).start()
+                return reply(self,202,{"ok":True,"job_id":job_id,"state":"running","target":f"{host}:{port}"})
             except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
         if path=="/undo/connect":
             n=int(self.headers.get("Content-Length","0"))

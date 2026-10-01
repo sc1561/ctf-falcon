@@ -78,7 +78,7 @@ def _receive_response(sock: socket.socket) -> bytes:
 
 
 def solve(path: Path, host: str, port: int, *, connector=socket.create_connection,
-          delay: float = ATTEMPT_DELAY) -> dict:
+          delay: float = ATTEMPT_DELAY, progress=None) -> dict:
     """Try only the supplied challenge dump against its parsed CTF TCP endpoint."""
     if path.name.lower() != "creds-dump.txt":
         return {"ok": False, "error": "اسم الملف المطلوب هو creds-dump.txt."}
@@ -92,11 +92,15 @@ def solve(path: Path, host: str, port: int, *, connector=socket.create_connectio
         return {"ok": False, "error": f"تعذر قراءة الملف المحلي: {exc}", "need": "C:\\Falcon\\analysis\\creds-dump.txt"}
     if not pairs:
         return {"ok": False, "error": "الملف فارغ أو لا يحتوي سجلات بصيغة username;password."}
+    if progress:
+        progress(0, len(pairs))
 
     attempts = 0
     connect_errors = 0
     for username, password in pairs:
         attempts += 1
+        if progress:
+            progress(attempts, len(pairs))
         try:
             with connector((host, port), timeout=CONNECT_TIMEOUT) as sock:
                 greeting = _receive_until(sock, b"Username:")

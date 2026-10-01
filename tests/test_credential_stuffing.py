@@ -50,9 +50,12 @@ def main():
             def connector(address, timeout):
                 assert address == ("chatelaine.cylabacademy.net", 34707)
                 return socket.create_connection(mock.address, timeout)
-            result = cs.solve(path, "chatelaine.cylabacademy.net", 34707, connector=connector, delay=0)
+            progress = []
+            result = cs.solve(path, "chatelaine.cylabacademy.net", 34707, connector=connector,
+                              delay=0, progress=lambda attempts, entries: progress.append((attempts, entries)))
             assert result["success"] and result["flag"] == FLAG, result
             assert result["attempts"] == 2 and result["malformed"] == 1
+            assert progress[0] == (0, 2) and progress[-1] == (2, 2)
             assert result["username"] == "valid" and "password" not in result
             assert cs.parse_target("Credential Stuffing\nnc chatelaine.cylabacademy.net 34707") == ("chatelaine.cylabacademy.net", 34707)
             assert cs.parse_target("Credential Stuffing\nnc evil.example 34707") is None

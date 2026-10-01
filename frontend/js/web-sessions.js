@@ -521,7 +521,7 @@
     var area=el('textarea','fws-area');area.placeholder='الصق هنا خرج الاتصال وتعليمات المراحل…';
     var connect=el('button','fws-btn','🔌 اتصل واجلب خرج الخدمة');
     var button=el('button','fws-btn','🧠 اشرح التحويلات واعكس ترتيبها');
-    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.30.0 أو أحدث.');
+    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.31.0 أو أحدث.');
     card.appendChild(connect);card.appendChild(area);card.appendChild(button);card.appendChild(status);out.appendChild(card);
     connect.onclick=async function(){
       if(!target){status.textContent='لم يجد صقر هدف nc في وصف التحدي.';return;}
@@ -530,7 +530,7 @@
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<30))throw new Error('حدّث المحرك المحلي إلى 2.30.0 ثم أعد تشغيله.');
+        if(v[0]<2||(v[0]===2&&v[1]<31))throw new Error('حدّث المحرك المحلي إلى 2.31.0 ثم أعد تشغيله.');
         var response=await fetch(engine+'/undo/solve',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
         var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر حل مراحل الخدمة.');
@@ -549,7 +549,7 @@
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<30))throw new Error('حدّث المحرك المحلي إلى 2.30.0 ثم أعد تشغيله.');
+        if(v[0]<2||(v[0]===2&&v[1]<31))throw new Error('حدّث المحرك المحلي إلى 2.31.0 ثم أعد تشغيله.');
         var response=await fetch(engine+'/undo/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({challenge_text:text,transcript:area.value}),cache:'no-store'});
         var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تحليل النص.');
@@ -596,7 +596,7 @@
     card.appendChild(el('p',null,'احفظ الملف creds-dump.txt داخل C:\\Falcon\\analysis. بعد ذلك اضغط الزر ليجرب صقر سجلات الملف على خدمة هذا التحدي فقط: '+(target?target.host+':'+target.port:'الهدف المذكور مع nc في الوصف')+'.'));
     card.appendChild(el('p','fws-muted','الحد الأقصى 1500 سجل، بترتيب الملف، مع فاصل زمني قصير. لا يرسل صقر الطلب إلى رابط الملف ولا إلى أي موقع آخر، ولا يعرض كلمات المرور في النتيجة.'));
     var button=el('button','fws-btn','▶ ابدأ فحص ملف التحدي');
-    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.28.0 أو أحدث.');
+    var status=el('div','fws-note','المحرك المحلي مطلوب: Falcon Local Engine 2.31.0 أو أحدث.');
     card.appendChild(button);card.appendChild(status);out.appendChild(card);
     button.onclick=async function(){
       button.disabled=true;status.textContent='يجري فحص الملف والاتصال بخدمة CTF المحددة…';
@@ -604,10 +604,25 @@
         var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
         var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
         var v=(health.version||'0.0.0').split('.').map(Number);
-        if(v[0]<2||(v[0]===2&&v[1]<25))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.28.0 ثم أعد تشغيله.');
-        var response=await fetch(engine+'/credential-stuffing/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
-        var data=await response.json();
-        if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تشغيل فحص ملف الاعتمادات.');
+        if(v[0]<2||(v[0]===2&&v[1]<31))throw new Error('حدّث المحرك المحلي إلى الإصدار 2.31.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/credential-stuffing/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
+        var started=await response.json();
+        if(!response.ok||!started.ok)throw new Error(started.error||'تعذر تشغيل فحص ملف الاعتمادات.');
+        var data=null,deadline=Date.now()+7*60*1000;
+        while(Date.now()<deadline){
+          await new Promise(function(resolve){setTimeout(resolve,800);});
+          var poll=await fetch(engine+'/credential-stuffing/status?job_id='+encodeURIComponent(started.job_id),{cache:'no-store'});
+          var job=await poll.json();
+          if(!poll.ok||!job.ok)throw new Error(job.error||'انقطع تحديث حالة الفحص.');
+          if(job.state==='running'){
+            status.textContent='يجري الفحص على '+job.target+' — تمت مراجعة '+job.attempts+' من '+job.entries+' سجلًا…';
+            continue;
+          }
+          data=job.result;
+          if(job.state==='error'||!data||!data.ok)throw new Error((data&&data.error)||'توقف الفحص بسبب خطأ.');
+          break;
+        }
+        if(!data)throw new Error('تجاوز الفحص المهلة المحددة. تحقق من حالة المحرك وأعد المحاولة.');
         status.textContent=data.success?'✅ عُثر على العلم بعد '+data.attempts+' محاولة.':'انتهى الفحص دون العثور على العلم بعد '+data.attempts+' محاولة.';
         if(data.success){
           var flag=el('div','fws-flag');flag.appendChild(el('strong',null,'✅ العلم المستخرج:'));
