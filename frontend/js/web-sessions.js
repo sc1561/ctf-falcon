@@ -508,6 +508,12 @@
     return /this secret box is designed to conceal your secrets/i.test(text) &&
       /https?:\/\/[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?\//i.test(text);
   }
+  function isFoolLockoutPrompt(text) {
+    text=String(text||'').replace(/(https?)\\:/gi,'$1:');
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?Fool\s+the\s+Lockout(?=\s|$|[—-])/im.test(text) &&
+      /creds-dump\.txt/i.test(text) && /app\.py/i.test(text) &&
+      /https?:\/\/[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?\//i.test(text);
+  }
   function undoTarget(text) {
     var m=String(text||'').match(/\b(?:nc|ncat)\s+([a-z0-9.-]+)\s+(\d{1,5})\b/i);
     return m?{host:m[1].toLowerCase(),port:Number(m[2])}:null;
@@ -613,6 +619,48 @@
     };
     busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});return false;
   }
+  async function runFoolLockoutChallenge(text) {
+    if(busy)return false;
+    busy=true;
+    var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();out.innerHTML='';
+    var card=el('div','fws-card');card.appendChild(el('div','fws-h','🔓 تحدي Fool the Lockout'));
+    card.appendChild(el('p',null,'ينزّل صقر app.py وcreds-dump.txt من روابط التحدي ويحفظهما في مجلد محلي خاص، ثم يتحقق من حدّ المحاولات في المصدر قبل تجربة السجلات على صفحة الدخول.'));
+    card.appendChild(el('p','fws-muted','يتبع صقر عدد المحاولات ونافذة إعادة الضبط المكتوبة في المصدر، ويوقف الفحص بعد سجلات الملف المقدمة. قد يستغرق الفحص عدة دقائق بسبب الانتظار بين الدفعات.'));
+    var button=el('button','fws-btn','▶ حلّل المصدر وابدأ الفحص');var status=el('div','fws-note','يتطلب Falcon Local Engine 2.34.0 أو أحدث.');
+    card.appendChild(button);card.appendChild(status);out.appendChild(card);
+    button.onclick=async function(){
+      button.disabled=true;status.textContent='يتحقق صقر من الهدف وروابط الملفين ثم يبدأ…';
+      try {
+        var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
+        var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
+        var v=(health.version||'0.0.0').split('.').map(Number);
+        if(v[0]<2||(v[0]===2&&v[1]<34))throw new Error('حدّث المحرك المحلي إلى 2.34.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/fool-lockout/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
+        var started=await response.json();if(!response.ok||!started.ok)throw new Error(started.error||'تعذر تشغيل فحص Fool the Lockout.');
+        var job=null,data=null,deadline=Date.now()+12*60*1000;
+        while(Date.now()<deadline){
+          await new Promise(function(resolve){setTimeout(resolve,1000);});
+          var poll=await fetch(engine+'/fool-lockout/status?job_id='+encodeURIComponent(started.job_id),{cache:'no-store'});
+          job=await poll.json();if(!poll.ok||!job.ok)throw new Error(job.error||'انقطع تحديث حالة الفحص.');
+          if(job.state==='running'){
+            if(job.phase==='waiting')status.textContent='انتظار نافذة إعادة العداد — تبقّى نحو '+job.wait_seconds+' ثانية؛ '+job.checked+' من '+job.entries+' سجلات تمت مراجعتها.';
+            else if(job.phase==='downloading')status.textContent='ينزّل app.py وcreds-dump.txt ويتحقق من كود حدّ المحاولات…';
+            else status.textContent='يفحص '+job.target+' — تمت مراجعة '+job.checked+' من '+job.entries+' سجلًا.';
+            continue;
+          }
+          data=job.result;break;
+        }
+        if(!data)throw new Error('تجاوز الفحص المهلة. تحقق من اتصال المثيل ثم أعد المحاولة.');
+        if(!data.ok)throw new Error(data.error||'تعذر إكمال تحليل المصدر.');
+        status.textContent=data.success?'✅ عُثر على العلم بعد مراجعة '+data.checked+' سجلًا.':'انتهت سجلات الملف دون العثور على العلم.';
+        if(data.files_saved_to)out.appendChild(el('p','fws-muted','حُفظ app.py وcreds-dump.txt في: '+data.files_saved_to));
+        (data.explanation_ar||[]).forEach(function(t){out.appendChild(el('p','fws-muted',t));});
+        (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
+        if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};row.appendChild(copy);box.appendChild(row);out.appendChild(box);}
+      }catch(e){status.textContent='تعذر الحل: '+e.message;button.disabled=false;}
+    };
+    busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});return false;
+  }
   function credentialTarget(text) {
     var m=String(text||'').match(/\bnc\s+([a-z0-9.-]+\.cylabacademy\.(?:net|org))\s+(\d{1,5})\b/i);
     return m?{host:m[1].toLowerCase(),port:Number(m[2])}:null;
@@ -678,11 +726,14 @@
   global.FalconWebSessions.runUndoChallenge = runUndoChallenge;
   global.FalconWebSessions.isSecretBoxPrompt = isSecretBoxPrompt;
   global.FalconWebSessions.runSecretBoxChallenge = runSecretBoxChallenge;
+  global.FalconWebSessions.isFoolLockoutPrompt = isFoolLockoutPrompt;
+  global.FalconWebSessions.runFoolLockoutChallenge = runFoolLockoutChallenge;
   global.FalconWebSessionRun = async function() {
     // Route the picoCTF No FA prompt to its artifact guidance before generic
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
     var pastedText=(document.getElementById('text')||{}).value||'';
+    if(isFoolLockoutPrompt(pastedText))return runFoolLockoutChallenge(pastedText);
     if(isUndoPrompt(pastedText))return runUndoChallenge(pastedText);
     if(isSecretBoxPrompt(pastedText))return runSecretBoxChallenge(pastedText);
     if(isCredentialStuffingPrompt(pastedText))return runCredentialStuffing(pastedText);

@@ -3,7 +3,7 @@ setlocal
 title CTF Falcon Local - Windows
 cd /d "%~dp0"
 echo ==========================================
-echo      CTF FALCON LOCAL ENGINE v2.33.0
+echo      CTF FALCON LOCAL ENGINE v2.34.0
 echo ==========================================
 echo.
 where python >nul 2>nul || (echo [ERROR] Python was not found.& pause & exit /b 1)

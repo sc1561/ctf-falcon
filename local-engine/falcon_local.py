@@ -9,7 +9,7 @@ import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.33.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.34.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -19,6 +19,8 @@ ENGINE_DIR=Path(__file__).resolve().parent
 WEB_ROOT=ENGINE_DIR.parent if ENGINE_DIR.name.lower()=="local-engine" else ENGINE_DIR
 _CREDENTIAL_JOBS={}
 _CREDENTIAL_JOBS_LOCK=threading.Lock()
+_FOOL_LOCKOUT_JOBS={}
+_FOOL_LOCKOUT_JOBS_LOCK=threading.Lock()
 
 def find_steghide():
     candidates=[shutil.which("steghide"),r"C:\\Falcon\steghide\steghide.exe",
@@ -153,6 +155,15 @@ class H(BaseHTTPRequestHandler):
                 job=_CREDENTIAL_JOBS.get(job_id)
                 snapshot=dict(job) if job else None
             if not snapshot: return reply(self,404,{"ok":False,"error":"جلسة الفحص غير موجودة أو انتهت."})
+            return reply(self,200,snapshot)
+        if path=="/fool-lockout/status":
+            job_id=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("job_id",[""])[0]
+            with _FOOL_LOCKOUT_JOBS_LOCK:
+                job=_FOOL_LOCKOUT_JOBS.get(job_id)
+                snapshot=dict(job) if job else None
+                if snapshot and snapshot.get("phase")=="waiting":
+                    snapshot["wait_seconds"]=max(0,int(snapshot.get("wait_seconds",0)-(time.monotonic()-snapshot.get("updated_at",time.monotonic()))))
+            if not snapshot: return reply(self,404,{"ok":False,"error":"جلسة فحص Fool the Lockout غير موجودة أو انتهت."})
             return reply(self,200,snapshot)
         if path=="/engine":
             b=dashboard().encode("utf-8"); self.send_response(200)
@@ -328,6 +339,50 @@ class H(BaseHTTPRequestHandler):
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,422,{"ok":False,"error":str(e)[:300]})
+        if path=="/fool-lockout/start":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=20000: return reply(self,413,{"ok":False,"error":"وصف التحدي غير صالح أو كبير جدًا."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"راجع هدف المثيل وابدأ الفحص من زر Fool the Lockout."})
+                import web_session_audit, fool_lockout
+                challenge_text=str(data.get("challenge_text",""))[:18000]
+                named=web_session_audit.detect_named_challenge(challenge_text)
+                target=fool_lockout.parse_target(challenge_text)
+                source_url,creds_url=fool_lockout._artifact_urls(challenge_text)
+                if not named or named[1]!="fool-the-lockout" or not target or not source_url or not creds_url:
+                    return reply(self,400,{"ok":False,"error":"يلزم وصف Fool the Lockout ورابط مثيل Cylab Academy ورابطا app.py وcreds-dump.txt."})
+                job_id=uuid.uuid4().hex
+                with _FOOL_LOCKOUT_JOBS_LOCK:
+                    for old_id,old_job in list(_FOOL_LOCKOUT_JOBS.items()):
+                        if old_job.get("state") in ("done","error"):
+                            _FOOL_LOCKOUT_JOBS.pop(old_id,None)
+                    _FOOL_LOCKOUT_JOBS[job_id]={"ok":True,"job_id":job_id,"state":"running","phase":"downloading",
+                        "attempts":0,"checked":0,"entries":0,"wait_seconds":0,"updated_at":time.monotonic(),
+                        "target":target}
+                def update_progress(attempts,checked,entries,phase,wait_seconds):
+                    with _FOOL_LOCKOUT_JOBS_LOCK:
+                        current=_FOOL_LOCKOUT_JOBS.get(job_id)
+                        if current:
+                            current.update(attempts=attempts,checked=checked,entries=entries,phase=phase,
+                                           wait_seconds=wait_seconds,updated_at=time.monotonic())
+                def run_job():
+                    try:
+                        result=fool_lockout.solve(challenge_text,ANALYSIS_ROOT,progress=update_progress)
+                        with _FOOL_LOCKOUT_JOBS_LOCK:
+                            current=_FOOL_LOCKOUT_JOBS.get(job_id)
+                            if current:
+                                current.update(state="done" if result.get("ok") else "error",phase="done",result=result,
+                                  attempts=result.get("attempts",current["attempts"]),checked=result.get("checked",current["checked"]),
+                                  entries=result.get("entries",current["entries"]),wait_seconds=0,updated_at=time.monotonic())
+                    except Exception as exc:
+                        with _FOOL_LOCKOUT_JOBS_LOCK:
+                            current=_FOOL_LOCKOUT_JOBS.get(job_id)
+                            if current: current.update(state="error",phase="error",result={"ok":False,"error":str(exc)[:300]})
+                threading.Thread(target=run_job,name="falcon-fool-lockout",daemon=True).start()
+                return reply(self,202,{"ok":True,"job_id":job_id,"state":"running","target":target})
+            except Exception as e: return reply(self,500,{"ok":False,"error":str(e)[:300]})
         if path=="/no-fa/decode-session":
             n=int(self.headers.get("Content-Length","0"))
             if not 0<n<=32768: return reply(self,413,{"ok":False,"error":"Invalid request size"})
