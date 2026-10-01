@@ -1,4 +1,4 @@
-# Falcon Local Engine v2.34.0
+# Falcon Local Engine v2.37.0
 
 محرك محلي اختياري لـ CTF Falcon. يعمل على الجهاز فقط على `127.0.0.1:8765` ولا يفتح خادمًا على الشبكة.
 
@@ -9,6 +9,13 @@
    `python falcon_local.py`
 4. اختبار الاتصال:
    افتح `http://127.0.0.1:8765/health`
+
+
+## Cryptography (picoCTF)
+
+احفظ الملفات المطلوبة بالاسم الأصلي داخل `C:\\Falcon\\analysis`، ثم الصق وصف التحدي في صقر واضغط «حلّل ملفات التحدي محليًا». الإصدار 2.37.0 يعرّف مجموعة تحديات Cryptography التي زوّدنا بها المستخدم، ويقرأ الملفات محليًا دون تشغيل ملفات Python المرفقة.
+
+المحللات التلقائية الحالية تشمل ROT13 والإزاحات والنص المعكوس وBase64 وHex وA1Z26 وC3 وShared Secrets وRSA ذي الأس الصغير وTimestamped Secrets وcryptomaze ومحاولة استخراج مفتاح StegoRSA من بيانات الصورة الوصفية. بعض المسارات تحتاج `cryptography` و`Pillow`؛ ثبتهما عبر `py -m pip install -r requirements.txt`. تُعرّف تحديات التفاعل وهجمات lattice المتقدمة مع أدلة وخطوات تالية، ولا يدّعي المحرك استخراج علم لم يتحقق منه.
 
 ## تحليل تحدي No FA
 
@@ -29,7 +36,7 @@
 ترسل الواجهة الملف إلى `127.0.0.1` عبر `POST /artifacts/analyze` فقط عند تشغيل المحرك. يفحص المحرك ZIP وTAR وGZIP وBZIP2 وXZ وZLIB، والملفات الشائعة المضمّنة، ونصوص UTF-8/UTF-16، وBase64 وHex وBinary وURL وEscape وROT13 الانتقائي. يعرض الأعلام مع مسار المصدر، ويتيح تنزيل عناصر صغيرة مستخرجة. الفحص للقراءة فقط وضمن حدود 64 MiB للملف و6 مستويات و220 عنصرًا. الأرشيفات المشفرة والصيغ غير المدعومة قد تحتاج معالجة يدوية. لا تُرسل الملفات إلى خدمة خارجية.
 
 ## الواجهات
-- `GET /health`
+- `GET /health`\n- `POST /crypto/analyze`
 - `POST /artifacts/analyze`
 - `POST /no-fa/analyze`
 - `POST /credential-stuffing/solve` (requires explicit confirmation and a parsed CTF target)
