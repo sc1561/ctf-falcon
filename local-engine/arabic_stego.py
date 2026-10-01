@@ -29,7 +29,13 @@ def recognizes_arabic_stego(text: str) -> bool:
     t = (text or "").lower()
     has_ar = any("\u0600" <= c <= "\u06ff" for c in t)
     clue = re.search(r"(?:صورة|ألوان|الوان|الصورة|مخفي|مخبأ|غير مرئي|لا ترى العين|بين السطور|المسافات|مسافات|فراغات|حروف|مفتاح|طبقات|ظل|ظلال|تفاصيل|ملف|رسالة مدفونة)", t)
-    return bool(has_ar and clue)
+    english_clue = re.search(
+        r"(?:hidden\\s+message|words?\\s+(?:seem|look)\\s+familiar|"
+        r"something\\s+strange.{0,80}(?:written|way)|"
+        r"letters?\\s+that\\s+whisper|don't\\s+look\\s+for\\s+the\\s+words)",
+        t,
+    )
+    return bool((has_ar and clue) or english_clue)
 
 
 def _flag_strings(data: bytes) -> list[str]:
