@@ -1,4 +1,5 @@
 import sys
+import base64
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,12 @@ def main():
     assert [s["operation"] for s in result["inverse_steps"]] == ["rev", "rot13"], result
     assert result["inverse_steps"][0]["inverse_command"] == "rev", result
     assert result["inverse_steps"][1]["inverse_command"] == "tr 'A-Za-z' 'N-ZA-Mn-za-m'", result
+
+    original = "picoCTF{undo_chain_test}"
+    final = base64.b64encode(original[::-1].encode()).decode()
+    recovered = undo.analyze("Undo", f"Stage 1: applied rev\nStage 2: applied base64\nTransformed flag: {final}")
+    assert recovered["flag"] == original, recovered
+    assert [s["operation"] for s in recovered["recovery_steps"]] == ["base64", "rev"], recovered
 
     mapped = undo.analyze("Undo", "The original string was translated using tr 'abc' 'xyz'")
     assert mapped["inverse_steps"][0]["inverse_command"] == "tr 'xyz' 'abc'", mapped

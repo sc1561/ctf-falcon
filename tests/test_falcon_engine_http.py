@@ -1,4 +1,4 @@
-import sys,importlib.util,threading,json,urllib.request,urllib.error,http.client
+import sys,importlib.util,threading,json,urllib.request,urllib.error,http.client,base64
 from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parent.parent
@@ -10,7 +10,7 @@ class LocalConnection(real):
  def __init__(self,host,port=None,**kw):super().__init__('127.0.0.1' if host=='mock.cylabacademy.net' else host,target_port if host=='mock.cylabacademy.net' else port,**kw)
 engine_server=engine.ThreadingHTTPServer(('127.0.0.1',0),engine.H);threading.Thread(target=engine_server.serve_forever,daemon=True).start();url='http://127.0.0.1:'+str(engine_server.server_port)
 try:
- health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.27.0'
+ health=json.load(urllib.request.urlopen(url+'/health'));assert health['version']=='2.28.0'
  artifact_req=urllib.request.Request(url+'/artifacts/analyze',data=b'picoCTF{local_artifact_scan}',headers={'Content-Type':'application/octet-stream','X-Filename':'sample.txt'})
  with urllib.request.urlopen(artifact_req) as r:
   artifact=json.load(r);assert artifact['ok'] and artifact['flags'][0]['flag']=='picoCTF{local_artifact_scan}'
@@ -35,6 +35,11 @@ try:
  undo_body=urllib.request.Request(url+'/undo/analyze',data=json.dumps({'challenge_text':undo_prompt,'transcript':'ROT13 then rev'}).encode(),headers={'Content-Type':'application/json'})
  with urllib.request.urlopen(undo_body) as r:
   undo_result=json.load(r);assert [s['operation'] for s in undo_result['inverse_steps']]==['rev','rot13']
+ undo_flag='picoCTF{undo_chain_test}'
+ payload=base64.b64encode(undo_flag[::-1].encode()).decode()
+ undo_recover=urllib.request.Request(url+'/undo/analyze',data=json.dumps({'challenge_text':undo_prompt,'transcript':f'Stage 1: rev\nStage 2: base64\nTransformed flag: {payload}'}).encode(),headers={'Content-Type':'application/json'})
+ with urllib.request.urlopen(undo_recover) as r:
+  recovered=json.load(r);assert recovered['flag']==undo_flag,recovered
  no_confirm=urllib.request.Request(url+'/credential-stuffing/solve',data=json.dumps({'confirm':False}).encode(),headers={'Content-Type':'application/json'})
  try:urllib.request.urlopen(no_confirm)
  except urllib.error.HTTPError as e:assert e.code==400
