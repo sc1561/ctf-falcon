@@ -37,7 +37,7 @@ def recognizes_arabic_stego(text: str) -> bool:
         r"message\s+(?:is\s+)?(?:hidden|hides)\s+(?:between|in)|"
         r"between.{0,100}(?:visible\s+)?(?:lines|sentences).{0,100}(?:hidden|hides|message)|"
         r"don't\s+trust\s+(?:the\s+)?appearances)",
-        t,
+        t, re.I | re.S,
     )
     return bool((has_ar and clue) or english_clue)
 
