@@ -9,7 +9,7 @@ import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.39.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.40.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -196,6 +196,31 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path=self.path.split("?",1)[0]
+        if path=="/stego/analyze-local":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=30000: return reply(self,413,{"ok":False,"error":"أرسل اسم ملف وتلميحًا صالحين."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ الفحص من زر تحليل الملف المحلي."})
+                name=str(data.get("filename", "")).strip()
+                if not name or name in (".","..") or "/" in name or "\\" in name or Path(name).name!=name:
+                    return reply(self,400,{"ok":False,"error":"اكتب اسم ملف فقط دون مسار، مثل flag 2.jpg."})
+                root=ANALYSIS_ROOT.resolve()
+                target=(root/name).resolve()
+                if target.parent!=root:
+                    return reply(self,400,{"ok":False,"error":"يسمح فقط بملفات مجلد C:\\Falcon\\analysis."})
+                if not target.is_file():
+                    return reply(self,404,{"ok":False,"error":"لم يُعثر على الملف داخل C:\\Falcon\\analysis."})
+                if target.stat().st_size>32*1024*1024:
+                    return reply(self,413,{"ok":False,"error":"حجم الملف يتجاوز 32 ميغابايت."})
+                import arabic_stego
+                result=arabic_stego.analyze_arabic_challenge(target.read_bytes(),name,
+                    str(data.get("challenge_text",""))[:24000],find_steghide())
+                result["engine_version"]=VERSION
+                result["source"]="C:\\Falcon\\analysis"
+                return reply(self,200,result)
+            except Exception as e: return reply(self,422,{"ok":False,"error":"تعذر تحليل الملف المحلي","detail":str(e)[:300]})
         if path=="/stego/analyze":
             n=int(self.headers.get("Content-Length","0"))
             if not 0<n<=48*1024*1024: return reply(self,413,{"ok":False,"error":"أرسل ملفًا أو ZIP بحجم لا يتجاوز 48 ميغابايت بعد ترميز النقل."})
