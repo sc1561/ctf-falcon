@@ -522,6 +522,40 @@
     return /this secret box is designed to conceal your secrets/i.test(text) &&
       /https?:\/\/[a-z0-9.-]+\.cylabacademy\.(?:net|org)(?::\d+)?\//i.test(text);
   }
+  function isCryptoChallengePrompt(text) {
+    text=String(text||'').replace(/(https?)\\\\:/gi,'$1:');
+    return /(?:^|\\n)\\s*(?:#{1,6}\\s*)?(?:StegoRSA|Shared Secrets|hashcrack|interencdec|Mod 26|The Numbers|Timestamped Secrets|Small Trouble|shift registers|Related Messages|Not TRUe|cryptomaze|ClusterRSA|Black Cobra Pepper|Crack the Power|Guess My Cheese \\(Part [12]\\)|rsa_oracle|Custom encryption|C3|rotation|13)(?=\\s|$|[—-])/im.test(text)
+      && /Cryptography/i.test(text);
+  }
+  async function runCryptoChallenge(text) {
+    if(busy)return false;
+    busy=true;
+    var out=document.getElementById('result');out.classList.remove('hidden');out.classList.add('fws');injectCSS();out.innerHTML='';
+    var files=renderArtifactGuidance(text);if(files)out.appendChild(files);
+    var card=el('div','fws-card');card.appendChild(el('div','fws-h','🔐 محلل Cryptography'));
+    card.appendChild(el('p',null,'يفحص صقر ملفات التحدي الموجودة في C:\\\\Falcon\\\\analysis ويختار مسارًا مطابقًا لاسم التحدي. يقرأ الملفات كبيانات ولا يشغّل سكربتات التحدي.'));
+    var button=el('button','fws-btn','▶ حلّل ملفات التحدي محليًا');
+    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.37.0 أو أحدث.');
+    card.appendChild(button);card.appendChild(status);out.appendChild(card);
+    button.onclick=async function(){
+      button.disabled=true;status.textContent='يفحص صقر الملفات المحلية ومسار التحدي…';
+      try{
+        var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:DEFAULT_ENGINE;
+        var health=await fetch(engine+'/health',{cache:'no-store'}).then(function(r){return r.json();});
+        var v=(health.version||'0.0.0').split('.').map(Number);
+        if(v[0]<2||(v[0]===2&&v[1]<37))throw new Error('حدّث المحرك المحلي إلى 2.37.0 ثم أعد تشغيله.');
+        var response=await fetch(engine+'/crypto/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
+        var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر تشغيل محلل Cryptography.');
+        status.textContent=data.success?'✅ استخرج صقر العلم بعد التحقق من الناتج.':'اكتمل التحليل؛ راجع الأدلة والخطوة التالية.';
+        if(data.files_found&&data.files_found.length)out.appendChild(el('p','fws-muted','الملفات التي قرأها: '+data.files_found.join(', ')));
+        if(data.missing_files&&data.missing_files.length)out.appendChild(el('p','fws-note','الملفات الناقصة: '+data.missing_files.join(', ')+' — احفظها في C:\\\\Falcon\\\\analysis ثم أعد التحليل.'));
+        (data.explanation_ar||[]).forEach(function(t){out.appendChild(el('p','fws-muted',t));});
+        (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
+        if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};row.appendChild(copy);box.appendChild(row);out.appendChild(box);}
+      }catch(e){status.textContent='تعذر التحليل: '+e.message;button.disabled=false;}
+    };
+    busy=false;out.scrollIntoView({behavior:'smooth',block:'start'});return false;
+  }
   function isSqlMap1Prompt(text) {
     text=String(text||'').replace(/(https?)\\:/gi,'$1:');
     return /(?:^|\n)\s*(?:#{1,6}\s*)?Sql\s+Map1(?=\s|$|[—-])/im.test(text) &&
@@ -791,7 +825,7 @@
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;
     var pastedText=(document.getElementById('text')||{}).value||'';
-    if(isSqlMap1Prompt(pastedText))return runSqlMap1Challenge(pastedText);
+    if(isCryptoChallengePrompt(pastedText))return runCryptoChallenge(pastedText);\n    if(isSqlMap1Prompt(pastedText))return runSqlMap1Challenge(pastedText);
     if(isFoolLockoutPrompt(pastedText))return runFoolLockoutChallenge(pastedText);
     if(isUndoPrompt(pastedText))return runUndoChallenge(pastedText);
     if(isSecretBoxPrompt(pastedText))return runSecretBoxChallenge(pastedText);
