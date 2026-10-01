@@ -150,6 +150,29 @@ def _hidden_unicode_candidates(text: str):
                     for flag in _flag_strings(candidate):
                         if flag not in result:
                             result.append(flag)
+            # Some zero-width schemes store each plaintext character as a
+            # 16-bit code unit, with each invisible glyph carrying two bits.
+            # Decode this separately from byte streams (e.g. 8 symbols/char).
+            for reverse in (False, True):
+                stream = bits[::-1] if reverse else bits
+                for offset in range(16):
+                    part = stream[offset:]
+                    for swap_bytes in (False, True):
+                        chars_out = []
+                        for i in range(0, len(part) - 15, 16):
+                            word = part[i:i + 16]
+                            if swap_bytes:
+                                word = word[8:] + word[:8]
+                            codepoint = int(word, 2)
+                            if 0xD800 <= codepoint <= 0xDFFF:
+                                chars_out = []
+                                break
+                            chars_out.append(chr(codepoint))
+                        if chars_out:
+                            candidate = "".join(chars_out).encode("utf-8", "ignore")
+                            for flag in _flag_strings(candidate):
+                                if flag not in result:
+                                    result.append(flag)
     return seq, result
 
 
@@ -275,7 +298,7 @@ def _file_findings(data: bytes, name: str, clue: str, steghide: str | None):
             candidates.append(("نص Unicode", text.encode("utf-8")))
             hidden, hidden_flags = _hidden_unicode_candidates(text)
             if hidden:
-                findings.append(f"عُثر على {len(hidden)} محرفًا غير مرئي/تنسيقي. فُحصت خرائط ZWC الثنائية والرباعية؛ لم تُقبل إلا النتائج المطابقة لصيغة العلم.")
+                findings.append(f"عُثر على {len(hidden)} محرفًا غير مرئي/تنسيقي. فُحصت ترميزات البتات الثنائية والرباعية ومحارف 16-bit؛ لم تُقبل إلا النتائج المطابقة لصيغة العلم.")
                 flags.extend((f, "محارف Unicode غير مرئية") for f in hidden_flags)
             typo = _typo_candidates(text)
             if typo:
