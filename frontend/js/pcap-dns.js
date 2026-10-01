@@ -1,7 +1,7 @@
 /* Dependency-free classic PCAP/PCAPNG DNS evidence analyzer. */
 (function(){
  'use strict';
- var previous=window.FalconSmartRun;
+ var previous=window.FalconSmartRun,previousWebSession=window.FalconWebSessionRun;
  function el(id){return document.getElementById(id)}
  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
  function u16(v,o,le){return v.getUint16(o,le)} function u32(v,o,le){return v.getUint32(o,le)}
@@ -55,6 +55,9 @@
   result.className='result';result.innerHTML=html;result.scrollIntoView({behavior:'smooth',block:'start'});return true;
  }
  window.FalconPcapDnsRun=async function(){var input=el('file'),ta=el('text'),f=(input&&input.files&&input.files[0])||window.__falconDroppedFile;if(f&&!(ta&&ta.value.trim())&&/\.(pcap|pcapng|cap)$/i.test(f.name||'')){try{var r=el('result');r.className='result';r.innerHTML='<div class="finding">⏳ يجري تحليل إطارات PCAP وطلبات DNS…</div>';if(runAnalysis(new Uint8Array(await f.arrayBuffer()),f.name,r))return false;}catch(e){var r2=el('result');if(r2)r2.innerHTML='<div class="finding warn">تعذر تحليل PCAP: '+esc(e.message||e)+'</div>';return false;}}return previous?previous():false;};
+ /* web-sessions installs a capture-phase handler and routes unmatched prompts through its
+    captured earlier FalconSmartRun. Override that entry point too, or PCAPNG falls through. */
+ window.FalconWebSessionRun=async function(){var input=el('file'),ta=el('text'),f=(input&&input.files&&input.files[0])||window.__falconDroppedFile;if(f&&!(ta&&ta.value.trim())&&/\.(pcap|pcapng|cap)$/i.test(f.name||''))return window.FalconPcapDnsRun();return previousWebSession?previousWebSession():(previous?previous():false);};
  window.FalconPcapRawTimeRun=window.FalconPcapDnsRun;window.FalconSmartRun=window.FalconPcapDnsRun;
  window.FalconPcapDnsTest={readFrames:readFrames,analyze:function(bytes,name){return runAnalysis(bytes,name,el('result'));}};
 })();
