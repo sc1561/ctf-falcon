@@ -30,9 +30,13 @@ def recognizes_arabic_stego(text: str) -> bool:
     has_ar = any("\u0600" <= c <= "\u06ff" for c in t)
     clue = re.search(r"(?:صورة|ألوان|الوان|الصورة|مخفي|مخبأ|غير مرئي|لا ترى العين|بين السطور|المسافات|مسافات|فراغات|حروف|مفتاح|طبقات|ظل|ظلال|تفاصيل|ملف|رسالة مدفونة)", t)
     english_clue = re.search(
-        r"(?:hidden\\s+message|words?\\s+(?:seem|look)\\s+familiar|"
-        r"something\\s+strange.{0,80}(?:written|way)|"
-        r"letters?\\s+that\\s+whisper|don't\\s+look\\s+for\\s+the\\s+words)",
+        r"(?:hidden\s+message|words?\s+(?:seem|look)\s+familiar|"
+        r"something\s+strange.{0,80}(?:written|way)|"
+        r"letters?\s+that\s+whisper|don't\s+look\s+for\s+the\s+words|"
+        r"invisible\s+(?:spaces?|characters?|whitespace)|"
+        r"message\s+(?:is\s+)?(?:hidden|hides)\s+(?:between|in)|"
+        r"between.{0,100}(?:visible\s+)?(?:lines|sentences).{0,100}(?:hidden|hides|message)|"
+        r"don't\s+trust\s+(?:the\s+)?appearances)",
         t,
     )
     return bool((has_ar and clue) or english_clue)
