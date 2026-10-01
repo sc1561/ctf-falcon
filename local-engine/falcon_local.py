@@ -9,7 +9,7 @@ import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.35.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.37.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -196,6 +196,18 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path=self.path.split("?",1)[0]
+        if path=="/crypto/analyze":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=24000: return reply(self,413,{"ok":False,"error":"ألصق وصف تحدي Cryptography صالحًا (بحد أقصى 24 كيلوبايت)."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ التحليل من زر Cryptography بعد مراجعة الملفات المطلوبة."})
+                import crypto_analysis
+                result=crypto_analysis.analyze(str(data.get("challenge_text",""))[:22000],ANALYSIS_ROOT)
+                result["engine_version"]=VERSION
+                return reply(self,200,result)
+            except Exception as e: return reply(self,422,{"ok":False,"error":"تعذر تحليل تحدي Cryptography محليًا","detail":str(e)[:300]})
         if path=="/artifacts/analyze":
             n=int(self.headers.get("Content-Length","0"))
             if n<=0 or n>64*1024*1024: return reply(self,413,{"ok":False,"error":"حجم الملف يجب أن يكون بين 1 بايت و64 ميغابايت."})
