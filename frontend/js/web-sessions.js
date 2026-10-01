@@ -534,12 +534,13 @@
         var response=await fetch(engine+'/undo/solve',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store'});
         var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'تعذر حل مراحل الخدمة.');
+        button.hidden=true;
         area.value=data.transcript||'';area.readOnly=true;
         status.textContent=data.flag?'✅ أكمل صقر المراحل واستخرج العلم من '+data.target+'.':(data.error||'وصل صقر إلى نهاية الخرج دون ظهور العلم.');
         (data.steps||[]).forEach(function(step){var row=el('div','fws-step open');var head=el('div','fws-step-h');head.appendChild(el('span','fws-n',String(step.stage)));head.appendChild(el('strong',null,'التحويل: '+step.operation));row.appendChild(head);var body=el('div','fws-step-b');body.style.display='block';body.appendChild(el('p',null,'أرسل صقر الأمر التالي كإجابة لمرحلة التحدي:'));body.appendChild(el('code','fws-path',step.command));row.appendChild(body);out.appendChild(row);});
         if(data.flag){var flagBox=el('div','fws-flag');flagBox.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var flagRow=el('div','fws-row');flagRow.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};flagRow.appendChild(copy);flagBox.appendChild(flagRow);out.appendChild(flagBox);}
         var details=el('details','fws-card');details.appendChild(el('summary',null,'عرض سجل الجلسة'));var raw=el('pre','fws-observed');raw.textContent=data.transcript||'';details.appendChild(raw);out.appendChild(details);
-      }catch(e){status.textContent='تعذر الحل تلقائيًا: '+e.message+' — يمكنك استخدام أمر Ncat أعلاه ولصق الخرج هنا.';connect.disabled=false;button.disabled=false;}
+      }catch(e){status.textContent='تعذر الحل تلقائيًا: '+e.message+' — يمكنك استخدام أمر Ncat أعلاه ولصق الخرج هنا.';connect.disabled=false;button.disabled=false;button.hidden=false;}
     };
     button.onclick=async function(){
       if(!area.value.trim()){status.textContent='الصق رسائل الخادم أولًا حتى يشرح صقر التحويلات الموجودة فعلًا.';return;}
