@@ -495,6 +495,10 @@
     return /(?:^|\n)\s*(?:#{1,6}\s*)?Undo(?=\s|$|[—-])/im.test(String(text||'')) &&
       /(?:picoCTF|chatelaine\.cylabacademy|transformation|transform|\bnc\s)/i.test(String(text||''));
   }
+  function undoTarget(text) {
+    var m=String(text||'').match(/\b(?:nc|ncat)\s+([a-z0-9.-]+)\s+(\d{1,5})\b/i);
+    return m?{host:m[1].toLowerCase(),port:Number(m[2])}:null;
+  }
   async function runUndoChallenge(text) {
     if(busy)return false;
     busy=true;
@@ -502,7 +506,9 @@
     var card=el('div','fws-card');
     card.appendChild(el('div','fws-h','🧭 شرح تحدي TCP: Undo'));
     card.appendChild(el('p',null,'هذا التحدي يطلب عكس تحويلات نصية. اتصل بالخدمة المذكورة في وصف التحدي، ثم الصق هنا رسائلها كاملة، وخصوصًا أسماء التحويلات أو أوامر Linux التي تذكرها.'));
-    card.appendChild(el('p','fws-muted','في Windows، إذا ظهر أن nc غير معروف، استخدم Ncat المرفق مع Nmap: ncat chatelaine.cylabacademy.net PORT. استبدل PORT بالرقم الموجود في وصف المثيل.'));
+    var target=undoTarget(text);
+    var command=target?'ncat '+target.host+' '+target.port:'ncat اسم_الخادم رقم_المنفذ';
+    card.appendChild(el('p','fws-muted','في Windows، إذا ظهر أن nc غير معروف، ثبّت Nmap مع Ncat ثم نفّذ: '+command+'. إذا لم يتعرف CMD على ncat، شغّل ncat.exe من مجلد تثبيت Nmap أو أضف ذلك المجلد إلى PATH.'));
     var area=el('textarea','fws-area');area.placeholder='الصق هنا خرج الاتصال وتعليمات المراحل…';
     var button=el('button','fws-btn','🧠 اشرح التحويلات واعكس ترتيبها');
     var status=el('div','fws-note','يتطلب Falcon Local Engine 2.26.0 أو أحدث.');
