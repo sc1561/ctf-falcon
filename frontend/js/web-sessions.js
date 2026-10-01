@@ -138,7 +138,7 @@
         box.appendChild(el("div", "fws-muted", "المصدر: " + res.flag_source + " — انسخ العلم بنفسك إلى منصة المسابقة."));
     } else {
       box.appendChild(el("strong", null, "❌ لم يُستخرج العلم تلقائيًا."));
-      box.appendChild(el("div", "fws-muted", "راجِع الخطوات أدناه؛ قد يكون شكل التحدي مختلفًا عن Old Sessions."));
+      box.appendChild(el("div", "fws-muted", res.analyzer === "north-south" ? "وصل الطلب إلى الخادم البديل لأن عنوان اتصال المحرك ليس آيسلنديًا. فعّل VPN آيسلنديًا على مستوى الجهاز ثم أعد الفحص." : "راجِع الخطوات أدناه؛ قد يكون شكل التحدي مختلفًا عن Old Sessions."));
     }
     return box;
   }
@@ -249,6 +249,20 @@
       typ.appendChild(el("div", "fws-h", "🎯 نوع التحدي"));
       typ.appendChild(el("div", null, res.challenge + (res.analyzer && res.analyzer !== "none" ? "  (المحلل: " + res.analyzer + ")" : "")));
       container.appendChild(typ);
+    }
+
+    if (res.analyzer === "north-south" && !res.success) {
+      var geo = el("div", "fws-card");
+      geo.appendChild(el("div", "fws-h", "🌍 تجاوز التوجيه الجغرافي"));
+      geo.appendChild(el("p", null, "يكشف nginx.conf أن الخادم يوجّه إلى العلم عندما يكون عنوان IP الذي يراه من آيسلندا (IS). طلبات المحرك المحلي تمر عبر اتصال Windows، لذلك إضافة VPN للمتصفح وحده قد لا تكفي."));
+      var how = el("ol", "fws-ul");
+      ["شغّل VPN يدعم اختيار Iceland / آيسلندا.", "اتصل عبر VPN على مستوى الجهاز، وتأكد أن اتصال الإنترنت في Windows يمر من خلاله.", "ارجع إلى صقر واضغط إعادة الفحص؛ سيعيد المحرك المحلي طلبًا واحدًا إلى المثيل."].forEach(function (s) { how.appendChild(el("li", null, s)); });
+      geo.appendChild(how);
+      geo.appendChild(el("p", "fws-muted", "تغيير X-Forwarded-For لا يغيّر عنوان IP الذي يستخدمه GeoIP2."));
+      var retry = el("button", "fws-btn", "↻ أعد الفحص بعد الاتصال بآيسلندا");
+      retry.onclick = function () { global.FalconWebSessionRun(); };
+      geo.appendChild(retry);
+      container.appendChild(geo);
     }
 
     var artifactGuidance = renderArtifactGuidance(document.getElementById("text") && document.getElementById("text").value);
