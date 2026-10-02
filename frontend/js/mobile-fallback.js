@@ -624,10 +624,41 @@ function analyzeFile(file){
   result.innerHTML=html+'</div>';
  }catch(e){result.innerHTML='<div class="finding warn">⚠️ خطأ في تحليل الملف: '+esc(e.message||e)+'</div>';}};reader.readAsArrayBuffer(file);return false;
 }
+async function falconFileB64(file){
+ var buf=await file.arrayBuffer(),u=new Uint8Array(buf),parts=[],step=32768;
+ for(var i=0;i<u.length;i+=step)parts.push(String.fromCharCode.apply(null,u.subarray(i,Math.min(i+step,u.length))));
+ return btoa(parts.join(''));
+}
+async function analyzeFileSet(files,raw,result){
+ var names=files.map(function(f){return String(f.name||'').toLowerCase();});
+ var pair=names.indexOf('flag.enc')>=0&&names.indexOf('image.jpg')>=0;
+ if(!pair)return analyzeFile(files[0]);
+ result.className='result';
+ result.innerHTML='<div class="finding"><h3>🧠 تحليل ذكي متعدد الملفات</h3><p>اكتشف صقر أن <code>image.jpg</code> و <code>flag.enc</code> مترابطان.</p><div class="solvePath">image.jpg + flag.enc → Metadata → RSA → Flag Hunter</div><p>⏳ جارٍ التحليل بالمحرك المحلي…</p></div>';
+ try{
+  var items=[];
+  for(var i=0;i<files.length;i++)items.push({name:files[i].name,data_b64:await falconFileB64(files[i])});
+  var response=await fetch(falconEngineURL()+'/crypto/analyze-files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge_text:raw||'',files:items}),cache:'no-store'});
+  var data=await response.json();
+  if(!response.ok||!data.ok)throw new Error(data.error||data.detail||('HTTP '+response.status));
+  var notes=(data.explanation_ar||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('');
+  if(data.success&&data.flag){
+   result.innerHTML='<div class="finding success"><h3>🚩 نجح صقر في استخراج العلم</h3><div class="solvePath">Metadata → RSA → Flag Hunter</div><div class="flag">'+esc(data.flag)+'</div>'+(notes?'<details><summary>📚 خطوات الاكتشاف</summary><ol>'+notes+'</ol></details>':'')+'</div>';
+  }else{
+   result.innerHTML='<div class="finding warn"><h3>🧠 تم التعرف على StegoRSA تلقائيًا</h3><p>لم يظهر علم مؤكد بعد تحليل الملفين معًا.</p>'+(notes?'<ol>'+notes+'</ol>':'')+'</div>';
+  }
+ }catch(e){
+  result.innerHTML='<div class="finding warn"><h3>⚠️ المحرك المحلي يحتاج تحديثًا</h3><p>تم التعرف على الملفين، لكن مسار التحليل المتعدد غير متاح في المحرك المشغّل.</p><p><code>'+esc(e.message||e)+'</code></p><p>شغّل Falcon Local Engine 2.56.0 أو أحدث.</p></div>';
+ }
+ return false;
+}
 window.FalconSmartRun=function(){
  var ta=byId('text'),fi=byId('file'),result=byId('result'),raw=ta?ta.value:'';
- var chosen=(fi&&fi.files&&fi.files.length)?fi.files[0]:window.__falconDroppedFile;
- if(chosen&&!raw.trim()){return analyzeFile(chosen);}
+ var files=(fi&&fi.files&&fi.files.length)?Array.prototype.slice.call(fi.files):(window.__falconDroppedFiles||[]);
+ if(!files.length&&window.__falconDroppedFile)files=[window.__falconDroppedFile];
+ if(files.length&&!raw.trim()){return analyzeFileSet(files,raw,result);}
+ if(files.length>1){return analyzeFileSet(files,raw,result);}
+ if(files.length&&!raw.trim()){return analyzeFile(files[0]);}
  if(!raw.trim()){result.className='result';result.innerHTML='<div class="finding warn">⚠️ الصق نص التحدي أو ارفع ملفًا أولًا.</div>';return false;}
  if(looksLikeLog(raw)){result.className='result';return analyzeLogs(raw,'pasted-log',result);} return runText(raw,true,'المحلل الذكي');
 };
