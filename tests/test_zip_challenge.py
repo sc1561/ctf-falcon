@@ -62,6 +62,17 @@ class EncryptedZipTests(unittest.TestCase):
         self.assertTrue(result["members"][0][1].startswith(b"FLAG{"))
         self.assertEqual(result["clue_matches"], ["قرينة الصباح والدفء تشير إلى sunshine"])
 
+    def test_semantic_match_stops_before_reading_rockyou(self):
+        hint = "شيء يطل كل صباح ويبعث الدفء."
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "rockyou.txt").write_text("bad-password\n", encoding="utf-8")
+            result = recover_zip_auto(SUNSHINE_ZIP, "lock.zip", hint, analysis_root=Path(directory))
+        self.assertEqual(result["password"], "sunshine")
+        self.assertEqual(result["attempts"], 1)
+        self.assertEqual(result["candidate_count"], 1)
+        self.assertEqual(result["wordlist_candidates"], 0)
+        self.assertFalse(any(source.startswith("قائمة RockYou") for source in result["evidence_sources"]))
+
     def test_local_rockyou_file_is_used_automatically(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "rockyou.txt").write_text("wrong\nfalcon123\n", encoding="utf-8")
