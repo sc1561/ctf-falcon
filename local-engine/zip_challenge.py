@@ -140,6 +140,14 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip") -> tuple[lis
                 evidence.append(("تعليق الأرشيف", _decode_text(archive.comment)))
             for entry in archive.infolist()[:MAX_CANDIDATES]:
                 evidence.append(("اسم ملف داخل الأرشيف", entry.filename))
+                year, month, day, hour, minute, second = entry.date_time
+                date_candidates = (
+                    f"{year:04d}{month:02d}{day:02d}", f"{day:02d}{month:02d}{year:04d}",
+                    f"{year:04d}-{month:02d}-{day:02d}", f"{day:02d}-{month:02d}-{year:04d}",
+                    f"{month:02d}{day:02d}{year:04d}", f"{year:04d}{month:02d}{day:02d}{hour:02d}{minute:02d}",
+                    f"{hour:02d}{minute:02d}{second:02d}", f"{year:04d}",
+                )
+                evidence.append(("تاريخ ووقت ZIP", " ".join(date_candidates)))
                 if entry.comment:
                     evidence.append(("تعليق ملف", _decode_text(entry.comment)))
                 if not entry.is_dir() and not (entry.flag_bits & 1) and entry.file_size <= 256_000:
