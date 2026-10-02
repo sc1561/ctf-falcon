@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "local-engine"))
 from artifact_extractor import analyze_artifact
-from zip_challenge import inspect_zip, recover_zip
+from zip_challenge import derive_candidates, inspect_zip, recover_zip, recover_zip_auto
 
 # Tiny classic ZipCrypto fixture generated for tests; no external cracker is required.
 ENCRYPTED_ZIP = base64.b64decode(
@@ -36,6 +36,19 @@ class EncryptedZipTests(unittest.TestCase):
         result = recover_zip(ENCRYPTED_ZIP, [])
         self.assertFalse(result.get("success", False))
         self.assertEqual(result["attempts"], 0)
+
+    def test_auto_search_derives_and_uses_password_from_archive_filename(self):
+        candidates, sources = derive_candidates(ENCRYPTED_ZIP, "falcon123.zip")
+        self.assertIn("falcon123", candidates)
+        self.assertIn("اسم الأرشيف", sources)
+        result = recover_zip_auto(ENCRYPTED_ZIP, "falcon123.zip")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["password"], "falcon123")
+
+    def test_auto_search_explains_when_archive_has_no_password_clue(self):
+        result = recover_zip_auto(ENCRYPTED_ZIP, "lock.zip")
+        self.assertFalse(result["success"])
+        self.assertIn("ليست محفوظة", result["error"])
 
     def test_plain_zip_is_not_misclassified_as_encrypted(self):
         data = io.BytesIO()
