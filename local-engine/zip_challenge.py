@@ -183,7 +183,8 @@ def _clue_candidates(challenge_text: str) -> tuple[list[str], list[str], bool]:
 
 
 def derive_candidates(data: bytes, filename: str = "challenge.zip", challenge_text: str = "",
-                      analysis_root: Path | None = None, falcon_home: Path | None = None) -> tuple[list[str], list[str]]:
+                      analysis_root: Path | None = None, falcon_home: Path | None = None,
+                      include_wordlist: bool = True) -> tuple[list[str], list[str]]:
     """Build candidates from challenge hints, archive evidence, then local RockYou."""
     evidence: list[tuple[str, str]] = [("اسم الأرشيف", filename)]
     try:
@@ -270,8 +271,7 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip", challenge_te
                     add(word.lower() + number)
         if len(candidates) >= MAX_EVIDENCE_CANDIDATES:
             break
-    wordlist = locate_rockyou(analysis_root, falcon_home)
-    wordlist_count = 0
+    wordlist = locate_rockyou(analysis_root, falcon_home) if include_wordlist else None
     if wordlist and len(candidates) < MAX_AUTO_CANDIDATES:
         try:
             opener = gzip.open if wordlist.suffix.lower() == ".gz" else open
@@ -279,10 +279,8 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip", challenge_te
                 for index, line in enumerate(stream):
                     if index >= MAX_WORDLIST_CANDIDATES or len(candidates) >= MAX_AUTO_CANDIDATES:
                         break
-                    before = len(candidates)
                     add(line.rstrip("\r\n"))
-                    wordlist_count += len(candidates) - before
-            used_sources.append("قائمة RockYou المحلية: %s مرشحًا" % wordlist_count + (" (قرينة قائمة كلمات مسرّبة)" if wordlist_hint else ""))
+            used_sources.append("قائمة RockYou المحلية" + (" (قرينة قائمة كلمات مسرّبة)" if wordlist_hint else ""))
         except (OSError, EOFError, gzip.BadGzipFile):
             used_sources.append("تعذر قراءة قائمة RockYou المحلية")
     return candidates[:MAX_AUTO_CANDIDATES], list(dict.fromkeys(used_sources))
@@ -290,25 +288,54 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip", challenge_te
 
 def recover_zip_auto(data: bytes, filename: str = "challenge.zip", challenge_text: str = "",
                      analysis_root: Path | None = None, falcon_home: Path | None = None) -> dict:
-    """Recover using interpreted challenge clues, in-archive evidence, and local RockYou."""
+    """Try semantic/archive clues first; read RockYou only if those candidates fail."""
     clue_values, clue_reasons, wordlist_hint = _clue_candidates(challenge_text)
     wordlist = locate_rockyou(analysis_root, falcon_home)
-    candidates, sources = derive_candidates(data, filename, challenge_text, analysis_root, falcon_home)
-    if not candidates:
-        info = inspect_zip(data, filename)
+    info = inspect_zip(data, filename)
+    if not info.get("is_zip"):
+        return {"ok": False, "success": False, "error": "الملف ليس أرشيف ZIP صالحًا."}
+    if not info.get("encrypted"):
+        return {"ok": False, "success": False, "encrypted": False,
+                "error": "الأرشيف غير مشفّر؛ استخدم فحص الملفات العادي."}
+
+    primary, primary_sources = derive_candidates(data, filename, challenge_text,
+        analysis_root, falcon_home, include_wordlist=False)
+    primary_result = recover_zip(data, primary, filename) if primary else {
+        "ok": True, "success": False, "attempts": 0, "candidate_count": 0,
+        "algorithm": info.get("algorithm"), "encrypted": True}
+    sources = list(primary_sources)
+    result = primary_result
+    wordlist_tried = 0
+
+    # Keep RockYou as a true fallback: don't read or test the large list when a
+    # semantic or archive clue already unlocked the file.
+    if not primary_result.get("success") and wordlist:
+        all_candidates, all_sources = derive_candidates(data, filename, challenge_text,
+            analysis_root, falcon_home, include_wordlist=True)
+        dictionary_candidates = all_candidates[len(primary):]
+        sources = all_sources
+        if dictionary_candidates:
+            dictionary_result = recover_zip(data, dictionary_candidates, filename)
+            wordlist_tried = dictionary_result.get("attempts", 0)
+            sources = [item for item in sources if not item.startswith("قائمة RockYou المحلية")]
+            if wordlist_tried:
+                sources.append("قائمة RockYou المحلية: جُرّب %s كلمة" % wordlist_tried)
+            dictionary_result["attempts"] = primary_result.get("attempts", 0) + wordlist_tried
+            dictionary_result["candidate_count"] = dictionary_result["attempts"]
+            result = dictionary_result
+
+    if not primary and not wordlist:
         return {"ok": True, "success": False, "encrypted": info.get("encrypted", False),
                 "algorithm": info.get("algorithm"), "attempts": 0, "candidate_count": 0,
                 "evidence_sources": sources, "clue_matches": clue_reasons,
                 "wordlist_available": bool(wordlist),
                 "error": "لم يجد صقر مرشحات كافية. ألصق وصف التحدي وتلميحاته، أو ضع rockyou.txt في C:\\Falcon\\analysis."}
-    result = recover_zip(data, candidates, filename)
+
     result["evidence_sources"] = sources
-    result["candidate_count"] = len(candidates)
+    result["candidate_count"] = result.get("attempts", 0)
     result["clue_matches"] = clue_reasons
     result["wordlist_available"] = bool(wordlist)
-    wordlist_source = next((item for item in sources if item.startswith("قائمة RockYou المحلية:")), "")
-    match = re.search(r":\s*(\d+) مرشحًا", wordlist_source)
-    result["wordlist_candidates"] = int(match.group(1)) if match else 0
+    result["wordlist_candidates"] = wordlist_tried
     result["wordlist_hint"] = wordlist_hint
     result["explanation_ar"] = clue_reasons
     if not result.get("success"):
