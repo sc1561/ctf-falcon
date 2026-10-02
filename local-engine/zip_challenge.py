@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import io
+import gzip
 import re
 import unicodedata
 import zipfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
-MAX_CANDIDATES = 20_000
+MAX_CANDIDATES = 100_000
 MAX_PASSWORD_LENGTH = 128
 MAX_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_TOTAL_BYTES = 32 * 1024 * 1024
-MAX_AUTO_CANDIDATES = 10_000
+MAX_AUTO_CANDIDATES = 100_000
+MAX_EVIDENCE_CANDIDATES = 5_000
+MAX_WORDLIST_CANDIDATES = 100_000
+WORDLIST_NAMES = ("rockyou.txt", "rockyou.txt.gz")
 _TOKEN = re.compile(r"[\w][\w.@!-]{1,39}", re.UNICODE)
 _GENERIC = {"flag", "secret", "password", "passwd", "archive", "encrypted", "readme",
             "file", "data", "txt", "zip", "pdf", "png", "jpg", "jpeg", "doc", "docx"}
@@ -126,13 +130,61 @@ def recover_zip(data: bytes, candidates: list[str], filename: str = "challenge.z
             "error": "لم تطابق أي كلمة مرور من القائمة الأرشيف. أضف كلمات مرشحة مستندة إلى وصف التحدي أو ملف الكلمات المرفق."}
 
 
-def derive_candidates(data: bytes, filename: str = "challenge.zip") -> tuple[list[str], list[str]]:
-    """Build a ranked candidate set only from clues physically inside this ZIP.
+def locate_rockyou(analysis_root: Path | None = None, falcon_home: Path | None = None) -> Path | None:
+    """Find a user-provided RockYou list in standard local training locations."""
+    analysis_root = Path(analysis_root) if analysis_root is not None else Path(r"C:\Falcon\analysis")
+    falcon_home = Path(falcon_home) if falcon_home is not None else Path(r"C:\Falcon")
+    roots = (
+        analysis_root, analysis_root / "wordlists", falcon_home,
+        falcon_home / "wordlists", Path(__file__).resolve().parent / "wordlists",
+        Path.home() / "wordlists", Path("/usr/share/wordlists"),
+        Path("/usr/share/seclists/Passwords/Common-Credentials"),
+    )
+    for root in roots:
+        for name in WORDLIST_NAMES:
+            candidate = root / name
+            if candidate.is_file():
+                return candidate
+    return None
 
-    Evidence sources are the archive/member names, ZIP comments, and readable
-    contents of unencrypted members. A correctly encrypted archive does not
-    normally contain its own password, so this is a bounded heuristic search.
-    """
+
+def _clue_candidates(challenge_text: str) -> tuple[list[str], list[str], bool]:
+    """Translate a few explicit CTF clue patterns into ranked password guesses."""
+    text = unicodedata.normalize("NFKC", challenge_text or "").lower()
+    values: list[str] = []
+    reasons: list[str] = []
+    wordlist_hint = bool(re.search(r"rock\s*you|rockyou|قائمة.{0,50}(?:متسرّب|متسرب|مسرب|شهيرة)|(?:كلمات|كلمة مرور).{0,60}(?:متسرّب|متسرب|مسرب)", text))
+
+    morning = any(term in text for term in ("كل صباح", "كل صباحًا", "يطل كل صباح", "الصباح", "morning", "sunrise", "dawn"))
+    warmth = any(term in text for term in ("الدفء", "دفء", "الحرارة", "الشمس", "يبعث الدفء", "warmth", "warm", "heat", "sun"))
+    if morning and warmth:
+        values.extend(("sunshine", "sunrise", "sunlight", "sun", "sunny", "morning", "sunbeam", "warmth", "heat"))
+        reasons.append("قرينة الصباح والدفء تشير إلى sunshine")
+    elif any(term in text for term in ("الشمس", "sunshine", "sunlight", "sunbeam")):
+        values.extend(("sunshine", "sunlight", "sunbeam", "sun", "sunny"))
+        reasons.append("قرينة الشمس تشير إلى كلمات مرتبطة بها")
+
+    # Include a short, bounded set of literal words from the supplied challenge
+    # text after semantic guesses, while filtering narrative boilerplate.
+    stop = _GENERIC | {"the", "and", "for", "with", "from", "this", "that", "can", "you",
+                       "your", "into", "about", "challenge", "passwords", "password", "zipcrypto",
+                       "المهمة", "التحدي", "كلمة", "كلمات", "مرور", "قائمة", "تلميح", "التلميح",
+                       "شيء", "الذي", "التي", "على", "من", "في", "إلى", "هذا", "هذه", "ذلك",
+                       "لكن", "ليس", "بل", "قبل", "كل", "صباح", "الدفء", "يطل", "يبعث"}
+    literal = []
+    for token in _TOKEN.findall(text):
+        token = token.strip("._-!@ ")
+        if len(token) >= 4 and token not in stop and not token.isdecimal() and token not in literal:
+            literal.append(token)
+        if len(literal) >= 120:
+            break
+    values.extend(literal)
+    return list(dict.fromkeys(values)), reasons, wordlist_hint
+
+
+def derive_candidates(data: bytes, filename: str = "challenge.zip", challenge_text: str = "",
+                      analysis_root: Path | None = None, falcon_home: Path | None = None) -> tuple[list[str], list[str]]:
+    """Build candidates from challenge hints, archive evidence, then local RockYou."""
     evidence: list[tuple[str, str]] = [("اسم الأرشيف", filename)]
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -172,6 +224,12 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip") -> tuple[lis
         seen.add(value)
         candidates.append(value)
 
+    clue_values, clue_reasons, wordlist_hint = _clue_candidates(challenge_text)
+    for value in clue_values:
+        add(value)
+    if challenge_text.strip():
+        used_sources.append("وصف التحدي وتلميحاته")
+
     rot13 = str.maketrans(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
         "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm")
@@ -210,26 +268,53 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip") -> tuple[lis
                 for number in numbers:
                     add(word + number)
                     add(word.lower() + number)
-        if len(candidates) >= MAX_AUTO_CANDIDATES:
+        if len(candidates) >= MAX_EVIDENCE_CANDIDATES:
             break
+    wordlist = locate_rockyou(analysis_root, falcon_home)
+    wordlist_count = 0
+    if wordlist and len(candidates) < MAX_AUTO_CANDIDATES:
+        try:
+            opener = gzip.open if wordlist.suffix.lower() == ".gz" else open
+            with opener(wordlist, "rt", encoding="utf-8", errors="ignore") as stream:
+                for index, line in enumerate(stream):
+                    if index >= MAX_WORDLIST_CANDIDATES or len(candidates) >= MAX_AUTO_CANDIDATES:
+                        break
+                    before = len(candidates)
+                    add(line.rstrip("\r\n"))
+                    wordlist_count += len(candidates) - before
+            used_sources.append("قائمة RockYou المحلية: %s مرشحًا" % wordlist_count + (" (قرينة قائمة كلمات مسرّبة)" if wordlist_hint else ""))
+        except (OSError, EOFError, gzip.BadGzipFile):
+            used_sources.append("تعذر قراءة قائمة RockYou المحلية")
     return candidates[:MAX_AUTO_CANDIDATES], list(dict.fromkeys(used_sources))
 
 
-def recover_zip_auto(data: bytes, filename: str = "challenge.zip") -> dict:
-    """Try password candidates automatically derived from evidence in the ZIP."""
-    candidates, sources = derive_candidates(data, filename)
+def recover_zip_auto(data: bytes, filename: str = "challenge.zip", challenge_text: str = "",
+                     analysis_root: Path | None = None, falcon_home: Path | None = None) -> dict:
+    """Recover using interpreted challenge clues, in-archive evidence, and local RockYou."""
+    clue_values, clue_reasons, wordlist_hint = _clue_candidates(challenge_text)
+    wordlist = locate_rockyou(analysis_root, falcon_home)
+    candidates, sources = derive_candidates(data, filename, challenge_text, analysis_root, falcon_home)
     if not candidates:
         info = inspect_zip(data, filename)
         return {"ok": True, "success": False, "encrypted": info.get("encrypted", False),
                 "algorithm": info.get("algorithm"), "attempts": 0, "candidate_count": 0,
-                "evidence_sources": sources,
-                "error": "لم يجد صقر نصًا أو تلميحًا قابلًا للاستخدام داخل الأرشيف. كلمة المرور لا تُحفظ عادةً داخل ZIP المشفّر؛ يمكن إضافة تلميح التحدي أو استخدام المسار اليدوي."}
+                "evidence_sources": sources, "clue_matches": clue_reasons,
+                "wordlist_available": bool(wordlist),
+                "error": "لم يجد صقر مرشحات كافية. ألصق وصف التحدي وتلميحاته، أو ضع rockyou.txt في C:\\Falcon\\analysis."}
     result = recover_zip(data, candidates, filename)
     result["evidence_sources"] = sources
     result["candidate_count"] = len(candidates)
+    result["clue_matches"] = clue_reasons
+    result["wordlist_available"] = bool(wordlist)
+    wordlist_source = next((item for item in sources if item.startswith("قائمة RockYou المحلية:")), "")
+    match = re.search(r":\s*(\d+) مرشحًا", wordlist_source)
+    result["wordlist_candidates"] = int(match.group(1)) if match else 0
+    result["wordlist_hint"] = wordlist_hint
+    result["explanation_ar"] = clue_reasons
     if not result.get("success"):
-        result["error"] = ("فحص صقر أسماء الملفات والتعليقات والمحتوى غير المشفّر داخل الأرشيف، ولم يجد كلمة المرور. "
-                           "قد لا تكفي الأدلة الموجودة في الملف وحده؛ كلمة المرور ليست محفوظة عادةً داخل ZIP المشفّر.")
+        result["error"] = ("فحص صقر وصف التحدي وأدلة الأرشيف" + (" وقائمة RockYou المحلية" if wordlist else "") +
+                           " ولم يجد كلمة المرور. " + ("ضع rockyou.txt في C:\\Falcon\\analysis ثم أعد المحاولة. " if wordlist_hint and not wordlist else "") +
+                           "كلمة المرور لا تُحفظ عادةً داخل ZIP المشفّر.")
     return result
 
 
