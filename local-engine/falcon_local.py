@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.54.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.54.1"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -344,7 +344,8 @@ class H(BaseHTTPRequestHandler):
             if n<=0 or n>64*1024*1024: return reply(self,413,{"ok":False,"error":"حجم الملف يجب أن يكون بين 1 بايت و64 ميغابايت."})
             try:
                 raw=self.rfile.read(n)
-                name=Path(self.headers.get("X-Filename","upload.bin")).name
+                encoded_name=self.headers.get("X-Filename","upload.bin")
+                name=Path(urllib.parse.unquote(encoded_name)).name
                 import pcap_analyzer
                 if pcap_analyzer.is_capture(raw,name):
                     result=pcap_analyzer.analyze_pcap(raw,name)
@@ -587,7 +588,7 @@ class H(BaseHTTPRequestHandler):
         if path=="/timeline/analyze":
             fls=find_tool("fls")
             if not fls: return reply(self,503,{"ok":False,"error":"fls.exe is not installed","need":["fls"]})
-            n=int(self.headers.get("Content-Length","0")); name=Path(self.headers.get("X-Filename","timeline.img.gz")).name
+            n=int(self.headers.get("Content-Length","0")); encoded_name=self.headers.get("X-Filename","timeline.img.gz"); name=Path(urllib.parse.unquote(encoded_name)).name
             if n<=0 or n>180*1024*1024: return reply(self,413,{"ok":False,"error":"Compressed image too large"})
             # Keep all large forensic temporary data under C:\\Falcon, never the Windows temp directory.
             work=Path(tempfile.mkdtemp(prefix="timeline_",dir=str(TEMP_ROOT))); gz=work/name
