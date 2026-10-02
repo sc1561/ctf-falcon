@@ -413,12 +413,23 @@ def _c3(contents: list[tuple[str,bytes]]) -> tuple[str | None,list[str]]:
     return (wrapper,["فك صقر جدولَي الاستبدال دوريًا، ثم حاكى بأمان أخذ محارف stage2 عند مؤشرات المكعبات الكاملة."]) if inner else (None,["فُكّت المرحلة الأولى لكن لم ينتج نصًا للعلم."])
 
 
+def _slug_from_files(present: dict[str, Path]) -> str | None:
+    """Identify high-confidence challenges from the uploaded file set itself."""
+    names = set(present)
+    # StegoRSA has a distinctive two-file signature.  File evidence wins;
+    # challenge text is only an optional hint.
+    if {"flag.enc", "image.jpg"}.issubset(names):
+        return "stegorsa"
+    return None
+
+
 def analyze(challenge_text: str, analysis_dir: Path | str) -> dict:
-    slug = _slug(challenge_text)
+    root = Path(analysis_dir)
+    present = _files(root)
+    slug = _slug(challenge_text) or _slug_from_files(present)
     if not slug:
-        return {"ok":False,"recognized":False,"error":"لم يتعرف صقر على تحدي Cryptography من العنوان."}
+        return {"ok":False,"recognized":False,"error":"لم يتعرف صقر على نوع التحدي من الملفات أو الوصف."}
     title, required = CHALLENGES[slug]
-    root=Path(analysis_dir); present=_files(root)
     missing=[name for name in required if name.lower() not in present]
     result={"ok":True,"recognized":True,"challenge":title,"analyzer":"cryptography","category":("crypto/stego_rsa" if slug=="stegorsa" else "cryptography"),"success":False,
             "flag":None,"files_found":[n for n in required if n.lower() in present],"missing_files":missing,
