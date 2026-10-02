@@ -4,6 +4,7 @@ import json
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import unittest
 from pathlib import Path
@@ -42,6 +43,15 @@ class ZipEndpointTests(unittest.TestCase):
                        {"Content-Type": "application/octet-stream", "X-Filename": "lock.zip"}) as response:
             data = json.load(response)
         self.assertEqual(data["encrypted_archives"][0]["algorithm"], "ZipCrypto")
+
+    def test_artifact_endpoint_decodes_utf8_filename_header(self):
+        name = "تحدي الأقفال.zip"
+        req = urllib.request.Request(self.url + "/artifacts/analyze", data=ENCRYPTED_ZIP,
+                                     headers={"Content-Type": "application/octet-stream",
+                                              "X-Filename": urllib.parse.quote(name)})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.load(response)
+        self.assertEqual(data["filename"], name)
 
     def test_candidate_endpoint_recovers_and_scans_flag(self):
         request = {"confirm": True, "filename": "lock.zip",
