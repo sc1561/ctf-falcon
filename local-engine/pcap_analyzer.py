@@ -303,7 +303,7 @@ _TSHARK_FIELDS = (
     "frame.number", "frame.time_epoch", "frame.protocols",
     "ip.src", "ipv6.src", "ip.dst", "ipv6.dst",
     "udp.srcport", "udp.dstport", "tcp.srcport", "tcp.dstport", "tcp.stream",
-    "dns.id", "dns.flags.response", "dns.flags.rcode", "dns.qry.name",
+    "dns.id", "dns.flags", "dns.flags.response", "dns.flags.rcode", "dns.qry.name",
     "dns.qry.type", "dns.count.answers", "http.host", "http.request.method",
     "http.request.uri", "tls.handshake.extensions_server_name",
 )
@@ -354,6 +354,25 @@ def _field_ns(value):
         return None
 
 
+def _dns_is_response(row):
+    """Interpret TShark's QR field, with header/RCODE fallbacks across versions."""
+    value = str(row.get("dns.flags.response", "")).strip().strip('"').lower()
+    if value in {"1", "true", "yes", "response"}:
+        return True
+    if value in {"0", "false", "no", "query"}:
+        return False
+    flags = str(row.get("dns.flags", "")).strip().strip('"')
+    try:
+        if flags.lower().startswith("0x"):
+            return bool(int(flags, 16) & 0x8000)
+        if flags and int(flags, 10) >= 0:
+            return bool(int(flags, 10) & 0x8000)
+    except ValueError:
+        pass
+    # A response with RCODE 0 can still have a populated field value "0".
+    return bool(str(row.get("dns.flags.rcode", "")).strip())
+
+
 def analyze_with_tshark(data: bytes, filename: str, executable: str):
     """Use TShark only to dissect a saved capture; never starts live capture."""
     suffix = Path(filename).suffix.lower()
@@ -385,7 +404,10 @@ def analyze_with_tshark(data: bytes, filename: str, executable: str):
                 value = row.get(field, "").strip()
                 if value:
                     output.add(value.rstrip("."))
-            if row.get("dns.id", "").strip():
+            # LLMNR reuses the DNS dissector's transaction-ID fields in some
+            # Wireshark versions. Count only frames whose protocol stack has
+            # the actual DNS layer, excluding LLMNR lookalikes.
+            if row.get("dns.id", "").strip() and "dns" in proto_path.split(":"):
                 src = row.get("ip.src", "").strip() or row.get("ipv6.src", "").strip()
                 dst = row.get("ip.dst", "").strip() or row.get("ipv6.dst", "").strip()
                 sport = row.get("udp.srcport", "").strip() or row.get("tcp.srcport", "").strip()
@@ -397,7 +419,7 @@ def analyze_with_tshark(data: bytes, filename: str, executable: str):
                     "src": src, "dst": dst, "sport": _field_int(sport), "dport": _field_int(dport),
                     "stream": _field_int(row.get("tcp.stream", "")),
                     "id": _field_int(row.get("dns.id", "")),
-                    "response": _field_int(row.get("dns.flags.response", "")) == 1,
+                    "response": _dns_is_response(row),
                     "rcode": _field_int(row.get("dns.flags.rcode", "")),
                     "name": row.get("dns.qry.name", "").strip().rstrip("."),
                     "qtype": row.get("dns.qry.type", "").strip(),

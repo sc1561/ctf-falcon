@@ -48,7 +48,8 @@
  function addTsharkCard(data){
   var r=data&&data.wireshark_analysis;if(!r)return;
   var box=el('result');if(!box)return;
-  var html='<div class="studentCard '+(r.used?'success':'next')+'"><b>🦈 تدقيق Wireshark المحلي</b>';
+  box.querySelectorAll('.falconTsharkCard').forEach(function(old){old.remove();});
+  var html='<div class="studentCard falconTsharkCard '+(r.used?'success':'next')+'"><b>🦈 تدقيق Wireshark المحلي</b>';
   if(!r.available){html+='<p>TShark غير مثبت؛ استُخدم محلل صقر المدمج. راجع ملف <code>WIRESHARK_WINDOWS_ar.md</code> داخل حزمة المحرك لتثبيته.</p>';}
   else if(!r.used){html+='<p>تعذر تشغيل TShark؛ احتفظ صقر بنتيجة المحلل المدمج.</p><p><small>'+esc(r.warning||'')+'</small></p>';}
   else{

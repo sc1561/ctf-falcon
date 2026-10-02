@@ -1,11 +1,11 @@
 # CTF Falcon 🛡️
 مساعد عربي محلي لتسريع تحليل تحديات CTF التعليمية والمصرح بها.
 
-## V193 — اتصال PCAP متوافق مع Firefox
+## V194 — إصلاح تدقيق DNS عبر TShark
 - لا تعرض الواجهة حالة المحرك قبل الحاجة؛ يبدأ تدقيق TShark تلقائيًا عند تحليل ملف PCAP.
 - عند تحليل PCAP/PCAPNG، يرسل المتصفح نسخة الملف إلى `127.0.0.1:8765` فقط؛ لا يغادر الملف جهاز الطالب.
 - يستخدم المحرك TShark اختياريًا لإثراء أدلة DNS والبروتوكولات وHTTP Host وTLS SNI. إذا تعذر الاتصال، تبقى نتيجة المتصفح ظاهرة مع زر إعادة محاولة واضح.
-- يتطلب ذلك Falcon Local Engine 2.50.0 أو أحدث وWireshark مع TShark. تعليمات Windows في `local-engine/WIRESHARK_WINDOWS_ar.md`.
+- يتطلب ذلك Falcon Local Engine 2.51.0 أو أحدث وWireshark مع TShark. تعليمات Windows في `local-engine/WIRESHARK_WINDOWS_ar.md`.
 
 ## V1
 - واجهة عربية RTL ووضع مسابقة.

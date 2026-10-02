@@ -69,12 +69,15 @@ class PcapAnalyzerTests(unittest.TestCase):
         output += row(**{"frame.number":"1", "frame.time_epoch":"100.000000000",
             "frame.protocols":"eth:ethertype:ip:udp:dns", "ip.src":"192.168.1.10",
             "ip.dst":"192.168.1.1", "udp.srcport":"39698", "udp.dstport":"53",
-            "dns.id":"15202", "dns.flags.response":"0", "dns.qry.name":"suspicious-website.xyz",
+            "dns.id":"15202", "dns.flags":"0x0100", "dns.flags.response":"False", "dns.qry.name":"suspicious-website.xyz",
             "dns.qry.type":"A"}) + "\n"
+        output += row(**{"frame.number":"2", "frame.time_epoch":"100.050000000",
+            "frame.protocols":"eth:ethertype:ip:udp:llmnr", "dns.id":"15202",
+            "dns.flags.response":"False", "dns.qry.name":"suspicious-website.xyz"}) + "\n"
         output += row(**{"frame.number":"4", "frame.time_epoch":"100.195287137",
             "frame.protocols":"eth:ethertype:ip:udp:dns", "ip.src":"192.168.1.1",
             "ip.dst":"192.168.1.10", "udp.srcport":"53", "udp.dstport":"39698",
-            "dns.id":"15202", "dns.flags.response":"1", "dns.flags.rcode":"3",
+            "dns.id":"15202", "dns.flags":"0x8183", "dns.flags.response":"True", "dns.flags.rcode":"3",
             "dns.qry.name":"suspicious-website.xyz", "dns.qry.type":"A"}) + "\n"
         calls = [SimpleNamespace(returncode=0, stdout=output, stderr=""),
                  SimpleNamespace(returncode=0, stdout="TShark (Wireshark) 4.4.0\n", stderr="")]
@@ -83,6 +86,7 @@ class PcapAnalyzerTests(unittest.TestCase):
         self.assertEqual(result["engine"], "TShark (Wireshark CLI)")
         self.assertEqual(result["dns_query_count"], 1)
         self.assertEqual(result["dns_response_count"], 1)
+        self.assertEqual(result["dns_message_count"], 2)
         self.assertEqual(result["matched_dns_pairs"][0]["rcode"], 3)
         self.assertEqual(result["average_dns_response_seconds"], 0.195287137)
         self.assertEqual(run.call_count, 2)

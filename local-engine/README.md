@@ -1,4 +1,4 @@
-# Falcon Local Engine v2.50.0
+# Falcon Local Engine v2.51.0
 
 محرك محلي اختياري لـ CTF Falcon. يعمل على الجهاز فقط على `127.0.0.1:8765` ولا يفتح خادمًا على الشبكة.
 
@@ -10,7 +10,7 @@
 4. اختبار الاتصال:
    افتح `http://127.0.0.1:8765/health`
 
-## PCAP مع TShark / Wireshark (2.50.0)
+## PCAP مع TShark / Wireshark (2.51.0)
 
 يثبت المحرك وجود `tshark.exe` في PATH أو مجلد Wireshark الافتراضي على Windows. عند رفع ملف PCAP أو PCAPNG من واجهة صقر، يقرأ المحرك الملف المحفوظ محليًا ويضيف إحصاءات البروتوكولات، وأزواج DNS مع رمز الاستجابة وزمنها، وHTTP Host وTLS SNI عند توفرها. لا يبدأ التقاطًا حيًا ولا يرسل الملف إلى خادم خارجي. إذا لم يوجد TShark، يعمل محلل صقر المدمج كخيار احتياطي. راجع `WIRESHARK_WINDOWS_ar.md` للتثبيت، وتحقق من `/health` لحقول `tshark` و`tshark_version`.
 
