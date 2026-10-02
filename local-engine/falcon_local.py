@@ -6,10 +6,11 @@ from http.cookies import SimpleCookie
 from email.utils import parsedate_to_datetime
 import time
 import threading, uuid
+import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.51.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.52.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -47,6 +48,8 @@ def status():
       "steghide":bool(find_steghide()),"steghide_path":find_steghide(),
       "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
       "timeline_python":True,"no_fa_analysis":True,"pcap_dns":True,
+      "encrypted_zip_detection":True,"zipcrypto_wordlist_recovery":True,
+      "winzip_aes_wordlist_recovery":importlib.util.find_spec("pyzipper") is not None,
       "wireshark":bool(wireshark),"wireshark_path":wireshark,
       "tshark":bool(tshark),"tshark_path":tshark,
       "tshark_version":pcap_analyzer.tshark_version(tshark) if tshark else None,"ready":True}
@@ -255,6 +258,42 @@ class H(BaseHTTPRequestHandler):
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,422,{"ok":False,"error":"تعذر تحليل تحدي Cryptography محليًا","detail":str(e)[:300]})
+        if path=="/archives/crack":
+            n=int(self.headers.get("Content-Length","0"))
+            if n<=0 or n>24*1024*1024: return reply(self,413,{"ok":False,"error":"حجم طلب فحص ZIP كبير جدًا (الحد 24 ميغابايت)."})
+            try:
+                data=json.loads(self.rfile.read(n))
+                if data.get("confirm") is not True:
+                    return reply(self,400,{"ok":False,"error":"ابدأ استعادة كلمة المرور بزر المحاولة بعد مراجعة الملف وقائمة المرشحين."})
+                archive=base64.b64decode(data.get("archive_b64",""),validate=True)
+                if not archive or len(archive)>12*1024*1024:
+                    return reply(self,413,{"ok":False,"error":"حجم الأرشيف يجب ألا يتجاوز 12 ميغابايت في مسار استعادة كلمة المرور."})
+                supplied=data.get("candidates",[])
+                if not isinstance(supplied,list) or len(supplied)>20000:
+                    return reply(self,400,{"ok":False,"error":"أرسل حتى 20,000 كلمة مرشحة، كل واحدة كسطر مستقل."})
+                candidates=[str(x)[:128] for x in supplied]
+                import zip_challenge
+                name=Path(str(data.get("filename","challenge.zip"))).name[:180]
+                recovered=zip_challenge.recover_zip(archive,candidates,name)
+                if recovered.get("success"):
+                    from artifact_extractor import analyze_artifact
+                    members=recovered.pop("members",[])
+                    scanned_flags=[]; scanned_findings=[]; scanned_items=[]
+                    for member_name,content in members:
+                        analysis=analyze_artifact(content,member_name)
+                        scanned_flags.extend(analysis.get("flags",[]))
+                        scanned_findings.extend(analysis.get("findings",[]))
+                        scanned_items.extend({k:v for k,v in item.items() if k!="download_b64"} for item in analysis.get("artifacts",[]))
+                    unique_flags={item.get("flag"):item for item in scanned_flags if item.get("flag")}
+                    recovered["members"]=[{"name":str(member_name).replace("\\","/").split("/")[-1][:180],"size":len(content)} for member_name,content in members]
+                    recovered["analysis"]={"flags":list(unique_flags.values()),"findings":list(dict.fromkeys(scanned_findings))[:80],"members":scanned_items}
+                recovered["filename"]=name
+                recovered["engine_version"]=VERSION
+                return reply(self,200,recovered)
+            except (ValueError, TypeError, json.JSONDecodeError) as e:
+                return reply(self,400,{"ok":False,"error":"تعذر قراءة الأرشيف أو قائمة الكلمات المرشحة.","detail":str(e)[:180]})
+            except Exception as e:
+                return reply(self,422,{"ok":False,"error":"تعذر تحليل الأرشيف المشفّر.","detail":str(e)[:240]})
         if path=="/artifacts/analyze":
             n=int(self.headers.get("Content-Length","0"))
             if n<=0 or n>64*1024*1024: return reply(self,413,{"ok":False,"error":"حجم الملف يجب أن يكون بين 1 بايت و64 ميغابايت."})

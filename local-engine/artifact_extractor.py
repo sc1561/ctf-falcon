@@ -177,6 +177,7 @@ def analyze_artifact(data: bytes, filename: str = "upload.bin") -> dict:
     flags: dict[str, dict] = {}
     artifacts: list[dict] = []
     findings: list[str] = []
+    encrypted_archives: list[dict] = []
     total_bytes = len(data)
     scanned = 0
     truncated = False
@@ -228,11 +229,23 @@ def analyze_artifact(data: bytes, filename: str = "upload.bin") -> dict:
         if kind == "ZIP":
             try:
                 with zipfile.ZipFile(io.BytesIO(blob)) as archive:
-                    for index, info in enumerate(archive.infolist()):
+                    entries = archive.infolist()
+                    encrypted = [entry for entry in entries if not entry.is_dir() and entry.flag_bits & 1]
+                    if encrypted:
+                        from zip_challenge import inspect_zip
+                        details = inspect_zip(blob, path)
+                        record = details.get("encrypted_archives", [{}])[0]
+                        if not any(item.get("path") == path for item in encrypted_archives):
+                            encrypted_archives.append(record)
+                        findings.append("اكتُشف أرشيف ZIP محمي بكلمة مرور: " + path + " (" + record.get("algorithm", "تشفير غير معروف") + ").")
+                    for index, info in enumerate(entries):
                         if index >= MAX_ARCHIVE_ENTRIES:
                             truncated = True
                             break
                         if info.is_dir():
+                            continue
+                        if info.flag_bits & 1:
+                            # Route encrypted entries to the dedicated password recovery flow.
                             continue
                         if info.file_size > MAX_CHILD_BYTES:
                             truncated = True
@@ -299,6 +312,7 @@ def analyze_artifact(data: bytes, filename: str = "upload.bin") -> dict:
         "truncated": truncated,
         "flags": list(flags.values()),
         "artifacts": artifacts,
+        "encrypted_archives": encrypted_archives,
         "findings": list(dict.fromkeys(findings))[:80],
-        "summary": "تم فحص الملف ومحتوياته المتداخلة محليًا." if not truncated else "اكتمل الفحص ضمن حدود الحجم والعمق؛ قد تكون بعض العناصر الكبيرة أو العميقة غير مفحوصة.",
+        "summary": ("اكتشف صقر أرشيف ZIP محميًا بكلمة مرور؛ استخدم قائمة كلمات مرشحة لفكّه." if encrypted_archives else "تم فحص الملف ومحتوياته المتداخلة محليًا.") if not truncated else "اكتمل الفحص ضمن حدود الحجم والعمق؛ قد تكون بعض العناصر الكبيرة أو العميقة غير مفحوصة.",
     }

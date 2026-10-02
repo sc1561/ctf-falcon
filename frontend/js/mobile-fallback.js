@@ -256,6 +256,17 @@ async function analyzeEmbeddedContainer(u8,result){
   for(var i=0;i<=u8.length-sig.length;i++){var ok=true;for(var j=0;j<sig.length;j++)if(u8[i+j]!==sig[j]){ok=false;break;}if(ok){off=i;break;}}
   if(off<0)return false;
   var zipBytes=u8.slice(off);
+  var encryptedNames=[];
+  for(var zi=0;zi+30<=zipBytes.length;zi++){
+   if(zipBytes[zi]===0x50&&zipBytes[zi+1]===0x4b&&zipBytes[zi+2]===0x03&&zipBytes[zi+3]===0x04){
+    var zview=new DataView(zipBytes.buffer,zipBytes.byteOffset+zi,zipBytes.length-zi),zflags=zview.getUint16(6,true),zn=zview.getUint16(26,true),ze=zview.getUint16(28,true);
+    if(zflags&1){var zname=bytesText(zipBytes.slice(zi+30,zi+30+zn));encryptedNames.push(zname||'عنصر ZIP');}
+    if(zi+30+zn+ze+4<=zipBytes.length){var zsize=zview.getUint32(18,true);if(zsize&&zi+30+zn+ze+zsize<=zipBytes.length)zi+=29+zn+ze+zsize;}
+   }
+  }
+  if(encryptedNames.length){
+   result.innerHTML='<div class="studentSummary"><h2>🔐 تحدي ZIP مشفّر</h2><div class="studentCard"><b>ما اكتشفه صقر</b><p>الأرشيف يحتوي على عناصر محمية بكلمة مرور: <code>'+esc(encryptedNames.slice(0,20).join('، '))+'</code>.</p><p>لم يحاول المتصفح فكها. شغّل Falcon Local Engine <code>v2.52.0</code> أو أحدث، ثم أعد تحليل الملف لفتح مسار قائمة الكلمات المحلية.</p><div class="solvePath">ZIP → Detect Encryption → Candidate Wordlist → Decrypt → Flag Scan</div></div></div>';return true;
+  }
   result.innerHTML='<div class="studentSummary"><h2>🧬 Digital Forensics</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Binary / Embedded File</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>اكتشف توقيع <strong>ZIP</strong> مضمّنًا داخل الملف عند offset <strong>'+off+'</strong>.</p><div class="solvePath">Binary → Signature Scan → Embedded ZIP</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>جارٍ فك ZIP وفحص كل ملف داخله ثم متابعة سلاسل الترميز تلقائيًا.</p></div></div>';
   if(typeof JSZip==='undefined'){result.innerHTML+='<div class="finding warn">⚠️ مكتبة ZIP لم تُحمّل. أعد تحميل الصفحة.</div>';return true;}
   var zip=await JSZip.loadAsync(zipBytes),names=Object.keys(zip.files),entries=[];
@@ -492,14 +503,44 @@ async function analyzeWithLocalArtifacts(file,result){
   var response=await fetch(engine+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':String(file.name||'upload.bin').replace(/[\r\n]/g,'_').slice(0,240)},body:file,cache:'no-store',signal:controller?controller.signal:undefined});
   if(!response.ok){if(response.status===404||response.status===405||response.status===501)return false;throw new Error('HTTP '+response.status);}
   var data=await response.json();if(!data.ok)return false;
-  if(!(data.scanned_nodes>1||data.extracted_count>0||(data.flags||[]).length))return false;
+  if(!(data.scanned_nodes>1||data.extracted_count>0||(data.flags||[]).length||(data.encrypted_archives||[]).length))return false;
   var html='<div class="studentSummary"><h2>🦅 فحص صقر الذكي متعدد الملفات</h2><div class="studentCard"><b>1️⃣ ما الذي فُحص؟</b><p>'+esc(data.summary||'فحص صقر الملف محليًا.')+' فُحصت <strong>'+Number(data.scanned_nodes||0)+'</strong> عناصر، واستُخرج <strong>'+Number(data.extracted_count||0)+'</strong> عنصرًا، بإجمالي '+Number(data.expanded_bytes||0).toLocaleString()+' بايت.</p><div class="solvePath">الملف → أرشيفات / ضغط → ملفات مضمّنة → ترميزات → Flag Hunter</div></div>';
   if((data.flags||[]).length){html+='<div class="studentCard success"><b>2️⃣ أعلام مرشحة مع مصدرها 🚩</b>';data.flags.forEach(function(x){html+='<div class="flag">'+esc(x.flag)+'</div><p><small>المصدر: <code>'+esc(x.path||'')+'</code></small></p>';});html+='</div>';}
+  if((data.encrypted_archives||[]).length){
+   html+='<div class="studentCard next" id="falconEncryptedZip"><b>🔐 اكتُشف أرشيف ZIP محمي بكلمة مرور</b>';
+   data.encrypted_archives.forEach(function(x){html+='<p>الخوارزمية: <code>'+esc(x.algorithm||'غير معروفة')+'</code> — الملفات المشفّرة: <strong>'+Number(x.encrypted_file_count||0)+'</strong><br><small>الأرشيف: <code>'+esc(x.path||file.name||'challenge.zip')+'</code></small></p>';});
+   html+='<p>أضف كلمات مرشحة من تلميحات التحدي أو اختر ملف قائمة كلمات مرفقًا. يجرّب صقر هذه القائمة فقط، بحد أقصى 20,000 كلمة.</p><label>كلمات مرشحة، كلمة واحدة في كل سطر<textarea id="falconZipCandidates" rows="5" dir="auto" placeholder="اكتب كلمات مرشحة أو ألصق قائمة التحدي"></textarea></label><p><label>أو اختر ملف كلمات محليًا <input type="file" id="falconZipWordlist" accept=".txt,.lst,.dict,text/plain"></label></p><button type="button" id="falconZipTry">🔎 جرّب الكلمات المرشحة وافحص الملفات</button><div id="falconZipCrackResult" aria-live="polite"></div></div>';
+  }
   if((data.artifacts||[]).length){html+='<div class="studentCard"><b>3️⃣ الملفات والعناصر المستخرجة</b>';data.artifacts.forEach(function(x,i){html+='<p><strong>'+esc(x.kind||'FILE')+'</strong> — '+Number(x.size||0).toLocaleString()+' بايت<br><small>المسار: <code>'+esc(x.path||x.name||'')+'</code></small>'+(x.download_b64?'<br><button type="button" data-falcon-artifact="'+i+'">⬇️ تنزيل هذا العنصر</button>':'')+'</p>';});html+='</div>';}
   if(data.truncated)html+='<div class="studentCard next"><b>حدود الفحص</b><p>توقف الفحص عند حدود الحجم أو العمق أو عدد الملفات لحماية الجهاز. العناصر الكبيرة أو المشفّرة قد تحتاج إلى كلمة مرور أو محلل متخصص.</p></div>';
   if((data.findings||[]).length){html+='<details class="studentCard"><summary>ملاحظات الفحص</summary><ul>';data.findings.forEach(function(x){html+='<li>'+esc(x)+'</li>';});html+='</ul></details>';}
   html+='<div class="studentCard next"><b>الخطوة التالية</b><p>راجع مسار كل نتيجة، ثم نزّل الملفات المستخرجة لتحليلها منفردة عند الحاجة. لا يرسل المحرك هذه الملفات خارج جهازك.</p></div></div>';
   result.innerHTML=html;
+  var zipButton=result.querySelector('#falconZipTry');
+  if(zipButton)zipButton.onclick=async function(){
+   var out=result.querySelector('#falconZipCrackResult'),list=(result.querySelector('#falconZipCandidates').value||'').split(/\r?\n/),picker=result.querySelector('#falconZipWordlist'),wordFile=picker&&picker.files&&picker.files[0];
+   if(wordFile){if(wordFile.size>4*1024*1024){out.innerHTML='<p class="finding warn">حجم قائمة الكلمات يتجاوز 4 ميغابايت.</p>';return;}list=list.concat((await wordFile.text()).split(/\r?\n/));}
+   list=list.map(function(x){return x.trim();}).filter(Boolean);
+   if(!list.length){out.innerHTML='<p class="finding warn">أدخل كلمات مرشحة أو اختر ملف القائمة أولًا.</p>';return;}
+   if(list.length>20000){out.innerHTML='<p class="finding warn">الحد الأقصى 20,000 كلمة مرشحة في المحاولة الواحدة.</p>';return;}
+   zipButton.disabled=true;out.innerHTML='<p>⏳ يجرب صقر القائمة المقدمة محليًا…</p>';
+   try{
+    var raw=new Uint8Array(await file.arrayBuffer()),parts=[];
+    for(var i=0;i<raw.length;i+=0x6000)parts.push(String.fromCharCode.apply(null,raw.subarray(i,Math.min(i+0x6000,raw.length))));
+    var archive64=btoa(parts.join(''));
+    var crack=await fetch(engine+'/archives/crack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,filename:file.name,archive_b64:archive64,candidates:list}),cache:'no-store'});
+    var answer=await crack.json();
+    if(!crack.ok||!answer.ok)throw new Error(answer.error||'تعذر فحص قائمة الكلمات.');
+    if(answer.success){
+     var resultHtml='<div class="finding success"><b>✅ عُثر على كلمة المرور</b><p><code>'+esc(answer.password)+'</code> — بعد '+Number(answer.attempts||0)+' محاولة.</p><p>فُك '+Number((answer.members||[]).length)+' ملف داخل الأرشيف.</p>';
+     var fs=answer.analysis&&answer.analysis.flags||[];
+     if(fs.length){resultHtml+='<b>🚩 العلم</b>';fs.forEach(function(x){resultHtml+='<div class="flag">'+esc(x.flag)+'</div><small>المصدر: <code>'+esc(x.path||'')+'</code></small>';});}
+     else resultHtml+='<p>لم يظهر علم مباشر؛ راجع قائمة الملفات وافحص كل ملف مستخرج.</p>';
+     resultHtml+='</div>';out.innerHTML=resultHtml;
+    }else out.innerHTML='<p class="finding warn">'+esc(answer.error||'لم تطابق القائمة كلمة المرور.')+' جُرّبت '+Number(answer.attempts||0)+' كلمة.</p>';
+   }catch(e){out.innerHTML='<p class="finding warn">تعذر استعادة الأرشيف: '+esc(e.message||e)+'</p>';}
+   finally{zipButton.disabled=false;}
+  };
   result.querySelectorAll('[data-falcon-artifact]').forEach(function(button){button.onclick=function(){var item=(data.artifacts||[])[Number(button.getAttribute('data-falcon-artifact'))];if(!item||!item.download_b64)return;var raw=atob(item.download_b64),bytes=new Uint8Array(raw.length);for(var j=0;j<raw.length;j++)bytes[j]=raw.charCodeAt(j);var url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'})),a=document.createElement('a');a.href=url;a.download=String(item.name||'extracted.bin').split(/[\\/]/).pop();a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);};});
   return true;
  }catch(e){return false;}finally{if(timer)clearTimeout(timer);}
