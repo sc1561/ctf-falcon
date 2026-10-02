@@ -1,5 +1,6 @@
 (function(){
 function byId(id){return document.getElementById(id);}
+function falconEngineURL(){return (location.port==='8765'&&(location.hostname==='127.0.0.1'||location.hostname==='localhost'))?location.origin:'http://127.0.0.1:8765';}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function flags(s){var r=/(?:flag|ctf|moe)[_\- ]?\{[^\r\n{}]{1,200}\}/ig,a=[],m;while((m=r.exec(s||''))!==null)a.push(m[0]);return a;}
 function b64(s){try{return atob(String(s).replace(/\s/g,''));}catch(e){return '';}}
@@ -250,7 +251,7 @@ function analyzePngLSB(file,u8,result){
   }catch(e){resolve(false);}
  });
 }
-async function analyzeEmbeddedContainer(u8,result){
+async function analyzeEmbeddedContainer(u8,result,file){
  try{
   var sig=[0x50,0x4b,0x03,0x04],off=-1;
   for(var i=0;i<=u8.length-sig.length;i++){var ok=true;for(var j=0;j<sig.length;j++)if(u8[i+j]!==sig[j]){ok=false;break;}if(ok){off=i;break;}}
@@ -265,7 +266,15 @@ async function analyzeEmbeddedContainer(u8,result){
    }
   }
   if(encryptedNames.length){
-   result.innerHTML='<div class="studentSummary"><h2>🔐 تحدي ZIP مشفّر</h2><div class="studentCard"><b>ما اكتشفه صقر</b><p>الأرشيف يحتوي على عناصر محمية بكلمة مرور: <code>'+esc(encryptedNames.slice(0,20).join('، '))+'</code>.</p><p>لم يحاول المتصفح فكها. شغّل Falcon Local Engine <code>v2.53.0</code> أو أحدث، ثم أعد تحليل الملف لفتح البحث التلقائي عن أدلة كلمة المرور داخل الأرشيف.</p><div class="solvePath">ZIP → Evidence Scan → Candidate Recovery → Flag Scan</div></div></div>';return true;
+   var engine=falconEngineURL(),engineNote='',health=null;
+   try{var hp=await fetch(engine+'/health',{cache:'no-store'});if(hp.ok)health=await hp.json();}catch(he){health=null;}
+   var v=String(health&&health.version||''),vm=v.match(/^(\d+)\.(\d+)\.(\d+)/),major=vm?Number(vm[1]):0,minor=vm?Number(vm[2]):0,patch=vm?Number(vm[3]):0;
+   if(!health)engineNote='<p>لم يتمكن المتصفح من قراءة حالة المحرك. شغّل نافذة المحرك واتركها مفتوحة، ثم افتح <a href="http://127.0.0.1:8765/health" target="_blank" rel="noopener">127.0.0.1:8765/health</a> وتأكد أن الصفحة تعرض <code>2.53.1</code> أو أحدث. اسمح لـ Firefox بالوصول إلى الشبكة المحلية إذا طلب ذلك.</p>';
+   else if(major<2||(major===2&&(minor<53||(minor===53&&patch<1))))engineNote='<p>المحرك المحلي متصل لكن نسخته <code>'+esc(v)+'</code>. حدّثه إلى <code>2.53.1</code> أو أحدث، ثم أعد تحليل الملف.</p>';
+   else if(!health.zip_evidence_password_recovery)engineNote='<p>المحرك متصل بالإصدار <code>'+esc(v)+'</code>، لكن ميزة ZIP غير مفعّلة. استبدل ملفات المحرك كاملةً بالحزمة الأخيرة ثم أعد تشغيله.</p>';
+   else engineNote='<p>المحرك متصل بالإصدار <code>'+esc(v)+'</code> والميزة مفعّلة، لكن طلب تحليل الملف لم يكتمل. اسمح باتصال الصفحة المحلية في Firefox، ثم أعد المحاولة. '+(window.__falconArtifactEngineDiagnostic?'<br>تفصيل: <code>'+esc(window.__falconArtifactEngineDiagnostic)+'</code>':'')+'</p>';
+   result.innerHTML='<div class="studentSummary"><h2>🔐 تحدي ZIP مشفّر</h2><div class="studentCard"><b>ما اكتشفه صقر</b><p>الأرشيف يحتوي على عناصر محمية بكلمة مرور: <code>'+esc(encryptedNames.slice(0,20).join('، '))+'</code>.</p>'+engineNote+'<button type="button" id="falconRetryZip">🔄 تحقق من المحرك وأعد تحليل الملف</button><div class="solvePath">ZIP → Local Engine → Evidence Scan → Candidate Recovery → Flag Scan</div></div></div>';
+   var retry=result.querySelector('#falconRetryZip');if(retry&&file)retry.onclick=function(){analyzeFile(file);};return true;
   }
   result.innerHTML='<div class="studentSummary"><h2>🧬 Digital Forensics</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Binary / Embedded File</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>اكتشف توقيع <strong>ZIP</strong> مضمّنًا داخل الملف عند offset <strong>'+off+'</strong>.</p><div class="solvePath">Binary → Signature Scan → Embedded ZIP</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>جارٍ فك ZIP وفحص كل ملف داخله ثم متابعة سلاسل الترميز تلقائيًا.</p></div></div>';
   if(typeof JSZip==='undefined'){result.innerHTML+='<div class="finding warn">⚠️ مكتبة ZIP لم تُحمّل. أعد تحميل الصفحة.</div>';return true;}
@@ -497,13 +506,17 @@ async function analyzeWithLocalArtifacts(file,result){
  var lower=String(file.name||'').toLowerCase();
  /* Preserve specialist browser analyzers for formats with richer parsers. */
  if(/\.(pcap|pcapng|cap|jpe?g|png|gif|bmp|webp|pdf|log|access|syslog)$/i.test(lower))return false;
- var engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:'http://127.0.0.1:8765';
+ var engine=falconEngineURL();
+ window.__falconArtifactEngineDiagnostic='';
  var controller=typeof AbortController!=='undefined'?new AbortController():null,timer=controller?setTimeout(function(){controller.abort();},30000):null;
  try{
   var response=await fetch(engine+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':String(file.name||'upload.bin').replace(/[\r\n]/g,'_').slice(0,240)},body:file,cache:'no-store',signal:controller?controller.signal:undefined});
   if(!response.ok){if(response.status===404||response.status===405||response.status===501)return false;throw new Error('HTTP '+response.status);}
-  var data=await response.json();if(!data.ok)return false;
-  if(!(data.scanned_nodes>1||data.extracted_count>0||(data.flags||[]).length||(data.encrypted_archives||[]).length))return false;
+  var data=await response.json();if(!data.ok){window.__falconArtifactEngineDiagnostic=data.error||'المحرك رفض تحليل الملف.';return false;}
+  if(!(data.scanned_nodes>1||data.extracted_count>0||(data.flags||[]).length||(data.encrypted_archives||[]).length)){
+   if(/\.zip$/i.test(lower))window.__falconArtifactEngineDiagnostic='المحرك استجاب لكنه لم يعلن تفاصيل ZIP المشفّر؛ قد تكون ملفات المحرك غير متزامنة.';
+   return false;
+  }
   var html='<div class="studentSummary"><h2>🦅 فحص صقر الذكي متعدد الملفات</h2><div class="studentCard"><b>1️⃣ ما الذي فُحص؟</b><p>'+esc(data.summary||'فحص صقر الملف محليًا.')+' فُحصت <strong>'+Number(data.scanned_nodes||0)+'</strong> عناصر، واستُخرج <strong>'+Number(data.extracted_count||0)+'</strong> عنصرًا، بإجمالي '+Number(data.expanded_bytes||0).toLocaleString()+' بايت.</p><div class="solvePath">الملف → أرشيفات / ضغط → ملفات مضمّنة → ترميزات → Flag Hunter</div></div>';
   if((data.flags||[]).length){html+='<div class="studentCard success"><b>2️⃣ أعلام مرشحة مع مصدرها 🚩</b>';data.flags.forEach(function(x){html+='<div class="flag">'+esc(x.flag)+'</div><p><small>المصدر: <code>'+esc(x.path||'')+'</code></small></p>';});html+='</div>';}
   if((data.encrypted_archives||[]).length){
@@ -562,14 +575,14 @@ async function analyzeWithLocalArtifacts(file,result){
   };
   result.querySelectorAll('[data-falcon-artifact]').forEach(function(button){button.onclick=function(){var item=(data.artifacts||[])[Number(button.getAttribute('data-falcon-artifact'))];if(!item||!item.download_b64)return;var raw=atob(item.download_b64),bytes=new Uint8Array(raw.length);for(var j=0;j<raw.length;j++)bytes[j]=raw.charCodeAt(j);var url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'})),a=document.createElement('a');a.href=url;a.download=String(item.name||'extracted.bin').split(/[\\/]/).pop();a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);};});
   return true;
- }catch(e){return false;}finally{if(timer)clearTimeout(timer);}
+ }catch(e){window.__falconArtifactEngineDiagnostic=String(e&&e.message||e||'تعذر الوصول إلى المحرك المحلي.');return false;}finally{if(timer)clearTimeout(timer);}
 }
 function analyzeFile(file){
  var result=byId('result');result.className='result';result.innerHTML='<div class="finding">⏳ جارٍ قراءة الملف وتحليله داخل جهازك...</div>';
  var reader=new FileReader();
  reader.onerror=function(){result.innerHTML='<div class="finding warn">⚠️ تعذر قراءة الملف.</div>';};
  reader.onload=async function(){try{
-  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(analyzeJpegMetadata(u8,name,result))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;}if(await analyzeWithLocalArtifacts(file,result))return; if(await analyzeEmbeddedContainer(u8,result))return;
+  var u8=new Uint8Array(reader.result),name=file.name||'file',lower=name.toLowerCase(),raw=bytesText(u8),allFlags=flags(raw),html='';if(analyzeBinaryDigitFile(raw,name,result))return;if(lower.endsWith('.jpg')||lower.endsWith('.jpeg')||(u8[0]===255&&u8[1]===216&&u8[2]===255)){if(analyzeJpegMetadata(u8,name,result))return;}if(lower.endsWith('.pdf')||(u8[0]===0x25&&u8[1]===0x50&&u8[2]===0x44&&u8[3]===0x46)){if(analyzePdfMetadata(u8,name,result))return;}if(lower.endsWith('.pcap')||lower.endsWith('.cap')){if(analyzePcap(u8,name,result))return;}if(await analyzeWithLocalArtifacts(file,result))return; if(await analyzeEmbeddedContainer(u8,result,file))return;
   if(lower.endsWith('.png')||(u8[0]===137&&u8[1]===80&&u8[2]===78&&u8[3]===71)){
    var end=pngEnd(u8),extra=end>=0&&end<u8.length?u8.slice(end):new Uint8Array(0),extraText=bytesText(extra),ef=flags(extraText),png=parsePngChunks(u8);
    html='<div class="studentSummary"><h2>🖼️ تحليل الصورة</h2><div class="studentCard"><b>1️⃣ نوع الملف</b><p>PNG — تم تحليل بنية الصورة وقراءة <strong>'+png.chunks.length+'</strong> PNG Chunks حتى IEND.</p></div>';
@@ -616,7 +629,7 @@ window.FalconSmartRun=function(){
 };
 window.FalconNoFaRun=async function(){
  var ta=byId('text'),raw=String(ta&&ta.value||'').trim();if(!isNoFaChallenge(raw))return false;
- var result=byId('result'),engine=(location.hostname==='127.0.0.1'||location.hostname==='localhost')?location.origin:'http://127.0.0.1:8765';
+ var result=byId('result'),engine=falconEngineURL();
  result.className='result';result.innerHTML='<div class="finding">⏳ يفحص Falcon Local Engine الملفين في <code>C:\\Falcon\\analysis</code>…</div>';
  try{
   var response=await fetch(engine+'/no-fa/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'});
