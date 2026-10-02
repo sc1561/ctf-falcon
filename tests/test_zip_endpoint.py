@@ -59,11 +59,21 @@ class ZipEndpointTests(unittest.TestCase):
             self.post("/archives/crack", json.dumps(request).encode())
         self.assertEqual(caught.exception.code, 400)
 
+    def test_evidence_endpoint_recovers_without_supplied_wordlist(self):
+        request = {"confirm": True, "filename": "falcon123.zip",
+                   "archive_b64": base64.b64encode(ENCRYPTED_ZIP).decode()}
+        with self.post("/archives/recover", json.dumps(request).encode()) as response:
+            data = json.load(response)
+        self.assertTrue(data["success"])
+        self.assertEqual(data["password"], "falcon123")
+        self.assertEqual(data["analysis"]["flags"][0]["flag"], "picoCTF{zip_password_recovered}")
+
     def test_health_advertises_zip_capabilities(self):
         with urllib.request.urlopen(self.url + "/health", timeout=5) as response:
             data = json.load(response)
         self.assertTrue(data["encrypted_zip_detection"])
         self.assertTrue(data["zipcrypto_wordlist_recovery"])
+        self.assertTrue(data["zip_evidence_password_recovery"])
 
 
 if __name__ == "__main__":
