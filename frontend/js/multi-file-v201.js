@@ -43,6 +43,23 @@ async function runPair(files){
  }
  out.scrollIntoView({behavior:'smooth',block:'start'}); return true;
 }
+function showSet(){
+ var files=selected(),box=el('fileStatus');
+ if(!box||!files.length)return;
+ box.className='fileStatus ready';
+ box.innerHTML='✅ <strong>'+files.length+' ملف(ات):</strong> '+files.map(function(f){return esc(f.name)}).join('، ');
+}
+var input=el('file');
+if(input){
+ input.addEventListener('change',function(){window.__falconDroppedFiles=Array.prototype.slice.call(input.files||[]);showSet();});
+}
+var drop=el('drop');
+if(drop){
+ drop.addEventListener('drop',function(e){
+  var fs=e.dataTransfer&&e.dataTransfer.files?Array.prototype.slice.call(e.dataTransfer.files):[];
+  if(fs.length){window.__falconDroppedFiles=fs;showSet();}
+ },true);
+}
 window.FalconMultiFileRun=async function(){
  var files=selected();
  if(files.length>=2&&isStegoRsa(files)){await runPair(files);return false}
