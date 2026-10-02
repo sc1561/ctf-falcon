@@ -9,7 +9,7 @@ import threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.43.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.50.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -41,18 +41,25 @@ def find_tool(name):
 
 def status():
     fls=find_tool("fls"); icat=find_tool("icat")
+    import pcap_analyzer
+    tshark=pcap_analyzer.find_tshark(); wireshark=pcap_analyzer.find_wireshark_gui()
     return {"ok":True,"engine":"Falcon Local Engine","version":VERSION,"python":True,
       "steghide":bool(find_steghide()),"steghide_path":find_steghide(),
       "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
-      "timeline_python":True,"no_fa_analysis":True,"ready":True}
+      "timeline_python":True,"no_fa_analysis":True,"pcap_dns":True,
+      "wireshark":bool(wireshark),"wireshark_path":wireshark,
+      "tshark":bool(tshark),"tshark_path":tshark,
+      "tshark_version":pcap_analyzer.tshark_version(tshark) if tshark else None,"ready":True}
 
 def dashboard():
     st=status()
     return """<!doctype html><meta charset="utf-8"><title>Falcon Local Engine</title>
 <style>body{font-family:Arial;direction:rtl;background:#07111f;color:#eef;padding:40px;max-width:760px;margin:auto}.c{background:#102238;padding:22px;border-radius:16px;margin:14px 0}code{direction:ltr;display:inline-block}</style>
-<h1>🦅 Falcon Local Engine v%s</h1><div class=c>🟢 Python جاهز<br>%s Sleuth Kit / fls: %s<br>🟢 Timeline: Falcon Python (لا يحتاج mactime.exe)<br>%s Steghide: %s</div>
+<h1>🦅 Falcon Local Engine v%s</h1><div class=c>🟢 Python جاهز<br>%s Sleuth Kit / fls: %s<br>🟢 Timeline: Falcon Python (لا يحتاج mactime.exe)<br>%s Steghide: %s<br>%s TShark / Wireshark CLI: %s</div>
 <div class=c><b>الحالة:</b> %s</div>""" % (VERSION,"🟢" if st["sleuthkit"] else "🔴",st["fls_path"] or "غير موجود",
-"🟢" if st["steghide"] else "🔴",st["steghide_path"] or "غير مثبت","جاهز لتحليل Timeline" if st["sleuthkit"] else "يحتاج fls.exe")
+"🟢" if st["steghide"] else "🔴",st["steghide_path"] or "غير مثبت",
+"🟢" if st["tshark"] else "⚪",st["tshark_path"] or "اختياري — ثبّت Wireshark مع TShark",
+"جاهز لتحليل Timeline" if st["sleuthkit"] else "يحتاج fls.exe")
 
 def partition_offsets(img):
     """Return candidate filesystem start sectors without requiring mmls."""
@@ -253,8 +260,13 @@ class H(BaseHTTPRequestHandler):
             if n<=0 or n>64*1024*1024: return reply(self,413,{"ok":False,"error":"حجم الملف يجب أن يكون بين 1 بايت و64 ميغابايت."})
             try:
                 raw=self.rfile.read(n)
-                from artifact_extractor import analyze_artifact
-                result=analyze_artifact(raw,Path(self.headers.get("X-Filename","upload.bin")).name)
+                name=Path(self.headers.get("X-Filename","upload.bin")).name
+                import pcap_analyzer
+                if pcap_analyzer.is_capture(raw,name):
+                    result=pcap_analyzer.analyze_pcap(raw,name)
+                else:
+                    from artifact_extractor import analyze_artifact
+                    result=analyze_artifact(raw,name)
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except ValueError as e: return reply(self,413,{"ok":False,"error":str(e)[:300]})
