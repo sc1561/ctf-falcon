@@ -75,6 +75,13 @@ class ZipEndpointTests(unittest.TestCase):
         self.assertTrue(data["zipcrypto_wordlist_recovery"])
         self.assertTrue(data["zip_evidence_password_recovery"])
 
+    def test_health_allows_loopback_ui_origin_only(self):
+        req = urllib.request.Request(self.url + "/health", headers={"Origin": "http://127.0.0.1:8000"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            self.assertEqual(response.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:8000")
+        self.assertEqual(engine.allowed_origin(type("Request", (), {"headers": {"Origin": "https://attacker.example"}})()),
+                         "https://sc1561.github.io")
+
 
 if __name__ == "__main__":
     unittest.main()
