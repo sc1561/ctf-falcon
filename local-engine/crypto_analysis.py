@@ -288,34 +288,98 @@ def _cryptomaze(text: str) -> tuple[str | None,list[str]]:
     return None,["أُعيد توليد المفتاح حسب ترتيب state[0]/taps، لكن AES لم ينتج علمًا؛ تحقق من ترتيب البتات والمكتبة."]
 
 
+def _jpeg_comments(raw: bytes) -> list[bytes]:
+    """Extract JPEG COM (0xFFFE) segments without relying on EXIF/Pillow."""
+    out=[]; i=2 if raw.startswith(b"\\xff\\xd8") else 0
+    while i+4 <= len(raw):
+        if raw[i] != 0xFF:
+            i += 1; continue
+        while i < len(raw) and raw[i] == 0xFF: i += 1
+        if i >= len(raw): break
+        marker=raw[i]; i += 1
+        if marker in (0xD8,0xD9) or 0xD0 <= marker <= 0xD7: continue
+        if marker == 0xDA: break
+        if i+2 > len(raw): break
+        seglen=int.from_bytes(raw[i:i+2],"big")
+        if seglen < 2 or i+seglen > len(raw): break
+        payload=raw[i+2:i+seglen]
+        if marker == 0xFE: out.append(payload)
+        i += seglen
+    return out
+
+
+def _metadata_payloads(image: Path) -> tuple[list[bytes], list[str]]:
+    raw=image.read_bytes()
+    payloads=list(_jpeg_comments(raw))
+    notes=[]
+    if payloads: notes.append(f"اكتشف صقر {len(payloads)} حقل JPEG Comment (COM) مباشرة من بنية الملف.")
+    try:
+        from PIL import Image
+        with Image.open(image) as im:
+            for value in im.getexif().values():
+                if isinstance(value,bytes): payloads.append(value)
+                elif isinstance(value,str): payloads.append(value.encode("utf-8","ignore"))
+            for value in (im.info or {}).values():
+                if isinstance(value,bytes): payloads.append(value)
+                elif isinstance(value,str): payloads.append(value.encode("utf-8","ignore"))
+    except Exception:
+        # Raw JPEG COM parsing above remains available when Pillow is absent.
+        pass
+    return payloads,notes
+
+
+def _key_candidates(payloads: list[bytes]) -> list[tuple[bytes,str]]:
+    out=[]; seen=set()
+    for raw in payloads:
+        candidates=[(raw.strip(),"metadata")]
+        text=raw.decode("ascii","ignore").strip()
+        compact=re.sub(r"\\s+","",text)
+        if len(compact)>=100 and len(compact)%2==0 and re.fullmatch(r"[0-9a-fA-F]+",compact):
+            try:candidates.append((bytes.fromhex(compact),"hex"))
+            except ValueError:pass
+        if len(compact)>=100 and re.fullmatch(r"[A-Za-z0-9+/=_-]+",compact):
+            try:candidates.append((base64.b64decode(compact+"="*((-len(compact))%4)),"base64"))
+            except Exception:pass
+        for data,label in candidates:
+            if b"-----BEGIN " not in data or b"PRIVATE KEY-----" not in data: continue
+            if data not in seen:
+                seen.add(data);out.append((data,label))
+    return out
+
+
 def _stegorsa(root: Path, files: dict[str,Path]) -> tuple[str | None,list[str]]:
     image=files.get("image.jpg"); enc=files.get("flag.enc")
     if not image or not enc:return None,["يلزم image.jpg وflag.enc داخل مجلد التحليل."]
-    try:
-        from PIL import Image
-        tags=Image.open(image).getexif()
-        metadata="\n".join(str(v) for v in tags.values() if isinstance(v,(str,bytes)))
-        if isinstance(Image.open(image).info,dict):metadata+="\n"+"\n".join(str(v) for v in Image.open(image).info.values())
-    except ImportError:return None,["تعذر قراءة EXIF؛ ثبّت Pillow أو افتح Metadata للصورة ثم أعد الفحص."]
+    try:payloads,notes=_metadata_payloads(image)
     except Exception as exc:return None,["تعذر قراءة Metadata للصورة: "+str(exc)[:120]]
-    keys=[]
-    for h in re.findall(r"(?<![0-9a-fA-F])([0-9a-fA-F]{100,})(?![0-9a-fA-F])",metadata):
-        if len(h)%2==0:
-            try:keys.append(bytes.fromhex(h))
-            except ValueError:pass
+    keys=_key_candidates(payloads)
+    if not keys:return None,notes+["فُحصت JPEG Comments وEXIF/XMP المتاحة، لكن لم يُستخرج PEM private key من Hex/Base64."]
     try:
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography.hazmat.primitives.asymmetric import padding
-        ct=enc.read_bytes()
-        for keydata in keys:
-            try:key=serialization.load_pem_private_key(keydata,password=None)
+    except ImportError:return None,notes+["استُخرج مرشح مفتاح، لكن فك RSA يحتاج مكتبة cryptography."]
+    ct=enc.read_bytes()
+    paddings=[
+        ("PKCS#1 v1.5",padding.PKCS1v15()),
+        ("OAEP-SHA1",padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA1()),algorithm=hashes.SHA1(),label=None)),
+        ("OAEP-SHA256",padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),algorithm=hashes.SHA256(),label=None)),
+    ]
+    for keydata,encoding in keys:
+        try:key=serialization.load_pem_private_key(keydata,password=None)
+        except Exception:continue
+        bits=getattr(key,"key_size",None)
+        for pad_name,pad in paddings:
+            try:pt=key.decrypt(ct,pad)
             except Exception:continue
-            try:pt=key.decrypt(ct,padding.PKCS1v15())
-            except Exception:continue
-            if _valid_flag(pt):return _valid_flag(pt),["استخرج صقر مفتاح PEM من hex في Metadata وفك RSA محليًا."]
-        return None,["وجد صقر Metadata لكنه لم يثبت مفتاح PEM صالحًا؛ تحقق من الحقل الكامل ونوع padding."]
-    except ImportError:return None,["قراءة EXIF نجحت، لكن فك RSA يحتاج مكتبة cryptography."]
-
+            flag=_valid_flag(pt)
+            if flag:
+                notes.extend([
+                    f"حوّل صقر Metadata من {encoding} إلى PEM private key صالح.",
+                    f"تعرّف على RSA{('-'+str(bits)) if bits else ''} ونجح فك التشفير باستخدام {pad_name}.",
+                    "مرّر النص الناتج إلى Flag Hunter وتحقق من صيغة العلم قبل إعلان النجاح.",
+                ])
+                return flag,notes
+    return None,notes+["استُخرج PEM private key، لكن PKCS#1 v1.5 وOAEP-SHA1 وOAEP-SHA256 لم تنتج علمًا مؤكدًا."]
 
 def _c3(contents: list[tuple[str,bytes]]) -> tuple[str | None,list[str]]:
     import ast
@@ -356,7 +420,7 @@ def analyze(challenge_text: str, analysis_dir: Path | str) -> dict:
     title, required = CHALLENGES[slug]
     root=Path(analysis_dir); present=_files(root)
     missing=[name for name in required if name.lower() not in present]
-    result={"ok":True,"recognized":True,"challenge":title,"analyzer":"cryptography","success":False,
+    result={"ok":True,"recognized":True,"challenge":title,"analyzer":"cryptography","category":("crypto/stego_rsa" if slug=="stegorsa" else "cryptography"),"success":False,
             "flag":None,"files_found":[n for n in required if n.lower() in present],"missing_files":missing,
             "steps":[],"explanation_ar":[],"warnings":[]}
     inline = "\n".join(re.findall(r"`([^`]{8,20000})`", challenge_text or ""))
