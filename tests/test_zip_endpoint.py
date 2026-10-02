@@ -68,6 +68,14 @@ class ZipEndpointTests(unittest.TestCase):
         self.assertEqual(data["password"], "falcon123")
         self.assertEqual(data["analysis"]["flags"][0]["flag"], "picoCTF{zip_password_recovered}")
 
+    def test_evidence_endpoint_uses_challenge_text(self):
+        request = {"confirm": True, "filename": "lock.zip", "challenge_text": "password clue falcon123",
+                   "archive_b64": base64.b64encode(ENCRYPTED_ZIP).decode()}
+        with self.post("/archives/recover", json.dumps(request).encode()) as response:
+            data = json.load(response)
+        self.assertTrue(data["success"])
+        self.assertEqual(data["password"], "falcon123")
+
     def test_health_advertises_zip_capabilities(self):
         with urllib.request.urlopen(self.url + "/health", timeout=5) as response:
             data = json.load(response)
