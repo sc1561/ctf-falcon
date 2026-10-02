@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.54.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.54.2"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
