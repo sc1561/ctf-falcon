@@ -265,7 +265,7 @@ async function analyzeEmbeddedContainer(u8,result){
    }
   }
   if(encryptedNames.length){
-   result.innerHTML='<div class="studentSummary"><h2>🔐 تحدي ZIP مشفّر</h2><div class="studentCard"><b>ما اكتشفه صقر</b><p>الأرشيف يحتوي على عناصر محمية بكلمة مرور: <code>'+esc(encryptedNames.slice(0,20).join('، '))+'</code>.</p><p>لم يحاول المتصفح فكها. شغّل Falcon Local Engine <code>v2.52.0</code> أو أحدث، ثم أعد تحليل الملف لفتح مسار قائمة الكلمات المحلية.</p><div class="solvePath">ZIP → Detect Encryption → Candidate Wordlist → Decrypt → Flag Scan</div></div></div>';return true;
+   result.innerHTML='<div class="studentSummary"><h2>🔐 تحدي ZIP مشفّر</h2><div class="studentCard"><b>ما اكتشفه صقر</b><p>الأرشيف يحتوي على عناصر محمية بكلمة مرور: <code>'+esc(encryptedNames.slice(0,20).join('، '))+'</code>.</p><p>لم يحاول المتصفح فكها. شغّل Falcon Local Engine <code>v2.53.0</code> أو أحدث، ثم أعد تحليل الملف لفتح البحث التلقائي عن أدلة كلمة المرور داخل الأرشيف.</p><div class="solvePath">ZIP → Evidence Scan → Candidate Recovery → Flag Scan</div></div></div>';return true;
   }
   result.innerHTML='<div class="studentSummary"><h2>🧬 Digital Forensics</h2><div class="studentCard"><b>1️⃣ نوع التحدي</b><p>Binary / Embedded File</p></div><div class="studentCard"><b>2️⃣ ماذا اكتشف صقر CTF؟</b><p>اكتشف توقيع <strong>ZIP</strong> مضمّنًا داخل الملف عند offset <strong>'+off+'</strong>.</p><div class="solvePath">Binary → Signature Scan → Embedded ZIP</div></div><div class="studentCard next"><b>3️⃣ Challenge Brain</b><p>جارٍ فك ZIP وفحص كل ملف داخله ثم متابعة سلاسل الترميز تلقائيًا.</p></div></div>';
   if(typeof JSZip==='undefined'){result.innerHTML+='<div class="finding warn">⚠️ مكتبة ZIP لم تُحمّل. أعد تحميل الصفحة.</div>';return true;}
@@ -509,13 +509,32 @@ async function analyzeWithLocalArtifacts(file,result){
   if((data.encrypted_archives||[]).length){
    html+='<div class="studentCard next" id="falconEncryptedZip"><b>🔐 اكتُشف أرشيف ZIP محمي بكلمة مرور</b>';
    data.encrypted_archives.forEach(function(x){html+='<p>الخوارزمية: <code>'+esc(x.algorithm||'غير معروفة')+'</code> — الملفات المشفّرة: <strong>'+Number(x.encrypted_file_count||0)+'</strong><br><small>الأرشيف: <code>'+esc(x.path||file.name||'challenge.zip')+'</code></small></p>';});
-   html+='<p>أضف كلمات مرشحة من تلميحات التحدي أو اختر ملف قائمة كلمات مرفقًا. يجرّب صقر هذه القائمة فقط، بحد أقصى 20,000 كلمة.</p><label>كلمات مرشحة، كلمة واحدة في كل سطر<textarea id="falconZipCandidates" rows="5" dir="auto" placeholder="اكتب كلمات مرشحة أو ألصق قائمة التحدي"></textarea></label><p><label>أو اختر ملف كلمات محليًا <input type="file" id="falconZipWordlist" accept=".txt,.lst,.dict,text/plain"></label></p><button type="button" id="falconZipTry">🔎 جرّب الكلمات المرشحة وافحص الملفات</button><div id="falconZipCrackResult" aria-live="polite"></div></div>';
+   html+='<p>ابدأ بالبحث التلقائي: يستخرج صقر كلمات مرشحة من اسم الأرشيف وتعليقاته وأسماء ومحتوى الملفات غير المشفّرة داخله. لا يحتاج هذا المسار إلى قائمة كلمات منفصلة.</p><button type="button" id="falconZipAuto">🧠 ابحث في أدلة الأرشيف عن كلمة المرور</button><details><summary>إضافة كلمات مرشحة يدويًا (اختياري)</summary><p>يمكنك إدخال كلمات من تلميحات التحدي أو اختيار ملف كلمات. سيختبر صقر المرشحات المقدمة فقط، بحد أقصى 20,000 كلمة.</p><label>كلمات مرشحة، كلمة واحدة في كل سطر<textarea id="falconZipCandidates" rows="5" dir="auto" placeholder="الصق كلمات مرشحة"></textarea></label><p><label>أو اختر ملف كلمات محليًا <input type="file" id="falconZipWordlist" accept=".txt,.lst,.dict,text/plain"></label></p><button type="button" id="falconZipTry">🔎 جرّب الكلمات المرشحة</button></details><div id="falconZipCrackResult" aria-live="polite"></div></div>';
   }
   if((data.artifacts||[]).length){html+='<div class="studentCard"><b>3️⃣ الملفات والعناصر المستخرجة</b>';data.artifacts.forEach(function(x,i){html+='<p><strong>'+esc(x.kind||'FILE')+'</strong> — '+Number(x.size||0).toLocaleString()+' بايت<br><small>المسار: <code>'+esc(x.path||x.name||'')+'</code></small>'+(x.download_b64?'<br><button type="button" data-falcon-artifact="'+i+'">⬇️ تنزيل هذا العنصر</button>':'')+'</p>';});html+='</div>';}
   if(data.truncated)html+='<div class="studentCard next"><b>حدود الفحص</b><p>توقف الفحص عند حدود الحجم أو العمق أو عدد الملفات لحماية الجهاز. العناصر الكبيرة أو المشفّرة قد تحتاج إلى كلمة مرور أو محلل متخصص.</p></div>';
   if((data.findings||[]).length){html+='<details class="studentCard"><summary>ملاحظات الفحص</summary><ul>';data.findings.forEach(function(x){html+='<li>'+esc(x)+'</li>';});html+='</ul></details>';}
   html+='<div class="studentCard next"><b>الخطوة التالية</b><p>راجع مسار كل نتيجة، ثم نزّل الملفات المستخرجة لتحليلها منفردة عند الحاجة. لا يرسل المحرك هذه الملفات خارج جهازك.</p></div></div>';
   result.innerHTML=html;
+  var autoButton=result.querySelector('#falconZipAuto');
+  if(autoButton)autoButton.onclick=async function(){
+   var out=result.querySelector('#falconZipCrackResult');autoButton.disabled=true;out.innerHTML='<p>⏳ يفحص صقر الأدلة النصية داخل الأرشيف ويكوّن مرشحات محلية…</p>';
+   try{
+    var raw=new Uint8Array(await file.arrayBuffer()),parts=[];
+    for(var i=0;i<raw.length;i+=0x6000)parts.push(String.fromCharCode.apply(null,raw.subarray(i,Math.min(i+0x6000,raw.length))));
+    var answerResponse=await fetch(engine+'/archives/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,filename:file.name,archive_b64:btoa(parts.join(''))}),cache:'no-store'});
+    var answer=await answerResponse.json();
+    if(!answerResponse.ok||!answer.ok)throw new Error(answer.error||'تعذر البحث في أدلة الأرشيف.');
+    if(answer.success){
+     var htmlResult='<div class="finding success"><b>✅ عُثر على كلمة المرور من أدلة الأرشيف</b><p><code>'+esc(answer.password)+'</code> — '+Number(answer.attempts||0)+' محاولة من '+Number(answer.candidate_count||0)+' مرشح.</p><p>مصادر المرشحات: '+esc((answer.evidence_sources||[]).join('، ')||'محتوى الأرشيف')+'.</p>';
+     var flags=answer.analysis&&answer.analysis.flags||[];
+     if(flags.length){htmlResult+='<b>🚩 الأعلام المستخرجة</b>';flags.forEach(function(x){htmlResult+='<div class="flag">'+esc(x.flag)+'</div><small>المصدر: <code>'+esc(x.path||'')+'</code></small>';});}
+     else htmlResult+='<p>فُك الأرشيف، لكن لم يظهر علم نصي مباشر. راجع قائمة ملفاته في نتيجة التحليل.</p>';
+     htmlResult+='</div>';out.innerHTML=htmlResult;
+    }else out.innerHTML='<p class="finding warn">'+esc(answer.error||'لم يجد صقر كلمة المرور من أدلة الأرشيف.')+' جُرّبت '+Number(answer.attempts||0)+' من '+Number(answer.candidate_count||0)+' مرشح. كلمة المرور لا تكون عادةً مخزنة داخل ZIP المشفّر.</p>';
+   }catch(e){out.innerHTML='<p class="finding warn">تعذر البحث التلقائي: '+esc(e.message||e)+'</p>';}
+   finally{autoButton.disabled=false;}
+  };
   var zipButton=result.querySelector('#falconZipTry');
   if(zipButton)zipButton.onclick=async function(){
    var out=result.querySelector('#falconZipCrackResult'),list=(result.querySelector('#falconZipCandidates').value||'').split(/\r?\n/),picker=result.querySelector('#falconZipWordlist'),wordFile=picker&&picker.files&&picker.files[0];
