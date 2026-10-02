@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.53.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.54.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -281,7 +281,9 @@ class H(BaseHTTPRequestHandler):
                     return reply(self,413,{"ok":False,"error":"حجم الأرشيف يجب ألا يتجاوز 12 ميغابايت في مسار الاستعادة."})
                 import zip_challenge
                 name=Path(str(data.get("filename","challenge.zip"))).name[:180]
-                recovered=zip_challenge.recover_zip_auto(archive,name)
+                challenge_text=str(data.get("challenge_text",""))[:24000]
+                recovered=zip_challenge.recover_zip_auto(archive,name,challenge_text,
+                    analysis_root=ANALYSIS_ROOT,falcon_home=FALCON_HOME)
                 if recovered.get("success"):
                     from artifact_extractor import analyze_artifact
                     members=recovered.pop("members",[])
