@@ -269,8 +269,8 @@ async function analyzeEmbeddedContainer(u8,result,file){
    var engine=falconEngineURL(),engineNote='',health=null;
    try{var hp=await fetch(engine+'/health',{cache:'no-store'});if(hp.ok)health=await hp.json();}catch(he){health=null;}
    var v=String(health&&health.version||''),vm=v.match(/^(\d+)\.(\d+)\.(\d+)/),major=vm?Number(vm[1]):0,minor=vm?Number(vm[2]):0,patch=vm?Number(vm[3]):0;
-   if(!health)engineNote='<p>لم يتمكن المتصفح من قراءة حالة المحرك. شغّل نافذة المحرك واتركها مفتوحة، ثم افتح <a href="http://127.0.0.1:8765/health" target="_blank" rel="noopener">127.0.0.1:8765/health</a> وتأكد أن الصفحة تعرض <code>2.53.1</code> أو أحدث. اسمح لـ Firefox بالوصول إلى الشبكة المحلية إذا طلب ذلك.</p>';
-   else if(major<2||(major===2&&(minor<53||(minor===53&&patch<1))))engineNote='<p>المحرك المحلي متصل لكن نسخته <code>'+esc(v)+'</code>. حدّثه إلى <code>2.53.1</code> أو أحدث، ثم أعد تحليل الملف.</p>';
+   if(!health)engineNote='<p>لم يتمكن المتصفح من قراءة حالة المحرك. شغّل نافذة المحرك واتركها مفتوحة، ثم افتح <a href="http://127.0.0.1:8765/health" target="_blank" rel="noopener">127.0.0.1:8765/health</a> وتأكد أن الصفحة تعرض <code>2.54.2</code> أو أحدث. اسمح لـ Firefox بالوصول إلى الشبكة المحلية إذا طلب ذلك.</p>';
+   else if(major<2||(major===2&&(minor<54||(minor===54&&patch<2))))engineNote='<p>المحرك المحلي متصل لكن نسخته <code>'+esc(v)+'</code>. حدّثه إلى <code>2.54.2</code> أو أحدث، ثم أعد تحليل الملف.</p>';
    else if(!health.zip_evidence_password_recovery)engineNote='<p>المحرك متصل بالإصدار <code>'+esc(v)+'</code>، لكن ميزة ZIP غير مفعّلة. استبدل ملفات المحرك كاملةً بالحزمة الأخيرة ثم أعد تشغيله.</p>';
    else engineNote='<p>المحرك متصل بالإصدار <code>'+esc(v)+'</code> والميزة مفعّلة، لكن طلب تحليل الملف لم يكتمل. اسمح باتصال الصفحة المحلية في Firefox، ثم أعد المحاولة. '+(window.__falconArtifactEngineDiagnostic?'<br>تفصيل: <code>'+esc(window.__falconArtifactEngineDiagnostic)+'</code>':'')+'</p>';
    result.innerHTML='<div class="studentSummary"><h2>🔐 تحدي ZIP مشفّر</h2><div class="studentCard"><b>ما اكتشفه صقر</b><p>الأرشيف يحتوي على عناصر محمية بكلمة مرور: <code>'+esc(encryptedNames.slice(0,20).join('، '))+'</code>.</p>'+engineNote+'<button type="button" id="falconRetryZip">🔄 تحقق من المحرك وأعد تحليل الملف</button><div class="solvePath">ZIP → Local Engine → Evidence Scan → Candidate Recovery → Flag Scan</div></div></div>';
@@ -526,14 +526,15 @@ async function analyzeWithLocalArtifacts(file,result){
   }
   if((data.artifacts||[]).length){html+='<div class="studentCard"><b>3️⃣ الملفات والعناصر المستخرجة</b>';data.artifacts.forEach(function(x,i){html+='<p><strong>'+esc(x.kind||'FILE')+'</strong> — '+Number(x.size||0).toLocaleString()+' بايت<br><small>المسار: <code>'+esc(x.path||x.name||'')+'</code></small>'+(x.download_b64?'<br><button type="button" data-falcon-artifact="'+i+'">⬇️ تنزيل هذا العنصر</button>':'')+'</p>';});html+='</div>';}
   if(data.truncated)html+='<div class="studentCard next"><b>حدود الفحص</b><p>توقف الفحص عند حدود الحجم أو العمق أو عدد الملفات لحماية الجهاز. العناصر الكبيرة أو المشفّرة قد تحتاج إلى كلمة مرور أو محلل متخصص.</p></div>';
-  if((data.findings||[]).length){html+='<details class="studentCard"><summary>ملاحظات الفحص</summary><ul>';data.findings.forEach(function(x){html+='<li>'+esc(x)+'</li>';});html+='</ul></details>';}
-  html+='<div class="studentCard next"><b>الخطوة التالية</b><p>راجع مسار كل نتيجة، ثم نزّل الملفات المستخرجة لتحليلها منفردة عند الحاجة. لا يرسل المحرك هذه الملفات خارج جهازك.</p></div></div>';
+  var usefulFindings=(data.findings||[]).filter(function(x){return String(x||'').trim()&&String(x).trim()!=='-';});
+  if(usefulFindings.length){html+='<details class="studentCard"><summary>ملاحظات الفحص</summary><ul>';usefulFindings.forEach(function(x){html+='<li>'+esc(x)+'</li>';});html+='</ul></details>';}
+  if(!(data.flags||[]).length)html+='<div class="studentCard next" id="falconNextSteps"><b>الخطوة التالية</b><p>راجع مسار كل نتيجة، ثم نزّل الملفات المستخرجة لتحليلها منفردة عند الحاجة. لا يرسل المحرك هذه الملفات خارج جهازك.</p></div></div>';
   result.innerHTML=html;
   var zipChallengeBox=result.querySelector('#falconZipChallengeText'),pageChallengeText=document.getElementById('text');
   if(zipChallengeBox&&pageChallengeText)zipChallengeBox.value=pageChallengeText.value||'';
   var autoButton=result.querySelector('#falconZipAuto');
   if(autoButton)autoButton.onclick=async function(){
-   var out=result.querySelector('#falconZipCrackResult');autoButton.disabled=true;out.innerHTML='<p>⏳ يفحص صقر الأدلة النصية داخل الأرشيف ويكوّن مرشحات محلية…</p>';
+   var out=result.querySelector('#falconZipCrackResult');autoButton.disabled=true;out.innerHTML='<p>⏳ يختبر صقر قرائن التلميح والأرشيف أولًا، ثم يستخدم RockYou عند الحاجة…</p>';
    try{
     var raw=new Uint8Array(await file.arrayBuffer()),parts=[];
     for(var i=0;i<raw.length;i+=0x6000)parts.push(String.fromCharCode.apply(null,raw.subarray(i,Math.min(i+0x6000,raw.length))));
@@ -542,9 +543,9 @@ async function analyzeWithLocalArtifacts(file,result){
     var answer=await answerResponse.json();
     if(!answerResponse.ok||!answer.ok)throw new Error(answer.error||'تعذر البحث في أدلة الأرشيف.');
     if(answer.success){
-     var htmlResult='<div class="finding success"><b>✅ عُثر على كلمة المرور</b><p><code>'+esc(answer.password)+'</code> — '+Number(answer.attempts||0)+' محاولة من '+Number(answer.candidate_count||0)+' مرشح.</p>'+(answer.explanation_ar&&answer.explanation_ar.length?'<p>فهم صقر التلميح: '+esc(answer.explanation_ar.join('، '))+'.</p>':'')+(Number(answer.wordlist_candidates||0)?'<p>جرّب صقر '+Number(answer.wordlist_candidates).toLocaleString()+' كلمة من قائمة RockYou المحلية.</p>':'')+'<p>مصادر المرشحات: '+esc((answer.evidence_sources||[]).join('، ')||'وصف التحدي والأرشيف')+'.</p>';
+     var htmlResult='<div class="finding success"><b>✅ عُثر على كلمة المرور</b><p><code>'+esc(answer.password)+'</code> — طابقت بعد '+Number(answer.attempts||0)+' محاولة؛ فُحص '+Number(answer.candidate_count||0)+' مرشح فعليًا.</p>'+(answer.explanation_ar&&answer.explanation_ar.length?'<p>فهم صقر التلميح: '+esc(answer.explanation_ar.join('، '))+'.</p>':'')+(Number(answer.wordlist_candidates||0)?'<p>جرّب صقر '+Number(answer.wordlist_candidates).toLocaleString()+' كلمة من قائمة RockYou المحلية.</p>':'')+'<p>مصادر المرشحات: '+esc((answer.evidence_sources||[]).join('، ')||'وصف التحدي والأرشيف')+'.</p>';
      var flags=answer.analysis&&answer.analysis.flags||[];
-     if(flags.length){htmlResult+='<b>🚩 الأعلام المستخرجة</b>';flags.forEach(function(x){htmlResult+='<div class="flag">'+esc(x.flag)+'</div><small>المصدر: <code>'+esc(x.path||'')+'</code></small>';});}
+     if(flags.length){htmlResult+='<b>🚩 الأعلام المستخرجة</b>';flags.forEach(function(x){htmlResult+='<div class="flag">'+esc(x.flag)+'</div><small>المصدر: <code>'+esc(x.path||'')+'</code></small>';});var nextSteps=result.querySelector('#falconNextSteps');if(nextSteps)nextSteps.remove();}
      else htmlResult+='<p>فُك الأرشيف، لكن لم يظهر علم نصي مباشر. راجع قائمة ملفاته في نتيجة التحليل.</p>';
      htmlResult+='</div>';out.innerHTML=htmlResult;
     }else out.innerHTML='<p class="finding warn">'+esc(answer.error||'لم يجد صقر كلمة المرور من أدلة الأرشيف.')+' جُرّبت '+Number(answer.attempts||0)+' من '+Number(answer.candidate_count||0)+' مرشح. كلمة المرور لا تكون عادةً مخزنة داخل ZIP المشفّر.</p>';
