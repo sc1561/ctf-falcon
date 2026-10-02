@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.54.2"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.55.0"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -49,7 +49,7 @@ def status():
       "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
       "timeline_python":True,"no_fa_analysis":True,"pcap_dns":True,
       "encrypted_zip_detection":True,"zipcrypto_wordlist_recovery":True,
-      "zip_evidence_password_recovery":True,
+      "zip_evidence_password_recovery":True,\n      "stegorsa_metadata_rsa":True,
       "winzip_aes_wordlist_recovery":importlib.util.find_spec("pyzipper") is not None,
       "wireshark":bool(wireshark),"wireshark_path":wireshark,
       "tshark":bool(tshark),"tshark_path":tshark,
