@@ -177,6 +177,10 @@ def derive_candidates(data: bytes, filename: str = "challenge.zip") -> tuple[lis
         meaningful: list[str] = []
         for token in tokens:
             stem = token.rsplit(".", 1)[0] if "." in token else token
+            if source == "اسم ملف داخل الأرشيف":
+                # File names themselves are useful candidates even when generic
+                # (for example, challenges sometimes use "flag" as the password).
+                add(stem)
             if stem.lower() in _GENERIC or len(stem) < 3:
                 continue
             meaningful.append(stem)
