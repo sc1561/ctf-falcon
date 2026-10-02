@@ -257,6 +257,33 @@ class H(BaseHTTPRequestHandler):
                 result["engine_version"]=VERSION
                 return reply(self,200,result)
             except Exception as e: return reply(self,422,{"ok":False,"error":"تعذر تحليل التحدي العربي محليًا","detail":str(e)[:300]})
+        if path=="/crypto/analyze-files":
+            n=int(self.headers.get("Content-Length","0"))
+            if not 0<n<=48*1024*1024: return reply(self,413,{"ok":False,"error":"حجم مجموعة الملفات كبير جدًا."})
+            work=None
+            try:
+                data=json.loads(self.rfile.read(n))
+                items=data.get("files") or []
+                if not isinstance(items,list) or not items or len(items)>12:
+                    return reply(self,400,{"ok":False,"error":"اختر من 1 إلى 12 ملفًا للتحليل."})
+                work=Path(tempfile.mkdtemp(prefix="falcon_multi_",dir=str(TEMP_ROOT)))
+                total=0
+                for item in items:
+                    name=Path(str(item.get("name","upload.bin"))).name[:180]
+                    raw=base64.b64decode(str(item.get("data_b64","")),validate=True)
+                    total+=len(raw)
+                    if not raw or len(raw)>16*1024*1024 or total>32*1024*1024:
+                        raise ValueError("تجاوزت الملفات حدود التحليل المحلي الآمن.")
+                    (work/name).write_bytes(raw)
+                import crypto_analysis
+                result=crypto_analysis.analyze(str(data.get("challenge_text",""))[:22000],work)
+                result["engine_version"]=VERSION
+                result["uploaded_files"]=[Path(str(x.get("name",""))).name for x in items]
+                return reply(self,200,result)
+            except Exception as e:
+                return reply(self,422,{"ok":False,"error":"تعذر التحليل متعدد الملفات","detail":str(e)[:300]})
+            finally:
+                if work: shutil.rmtree(work,ignore_errors=True)
         if path=="/crypto/analyze":
             n=int(self.headers.get("Content-Length","0"))
             if not 0<n<=24000: return reply(self,413,{"ok":False,"error":"ألصق وصف تحدي Cryptography صالحًا (بحد أقصى 24 كيلوبايت)."})
