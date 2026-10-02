@@ -65,7 +65,9 @@
  function beginTsharkRequest(file){
   var controller=typeof AbortController!=='undefined'?new AbortController():null;
   var timer=controller?setTimeout(function(){controller.abort()},60000):null;
-  return fetch(localEngineUrl()+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':String(file.name||'capture.pcap').replace(/[\r\n]/g,'_').slice(0,240)},body:file,cache:'no-store',signal:controller?controller.signal:undefined,targetAddressSpace:'local'}).then(async function(response){if(!response.ok)throw new Error('رفض المحرك الملف (HTTP '+response.status+').');return response.json();}).then(function(data){return {data:data};},function(error){return {error:error};}).finally(function(){if(timer)clearTimeout(timer);});
+  /* Use a CORS-safelisted content type and no custom headers. The engine detects PCAP by magic bytes,
+     so the filename header is unnecessary here; avoiding OPTIONS preflight improves Firefox LNA compatibility. */
+  return fetch(localEngineUrl()+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'text/plain'},body:file,cache:'no-store',signal:controller?controller.signal:undefined,targetAddressSpace:'local'}).then(async function(response){if(!response.ok)throw new Error('رفض المحرك الملف (HTTP '+response.status+').');return response.json();}).then(function(data){return {data:data};},function(error){return {error:error};}).finally(function(){if(timer)clearTimeout(timer);});
  }
  async function enrichWithTshark(file,pending,existingCard){
   try{
@@ -77,7 +79,7 @@
  function showBridgeFailure(message,file,card){
   var box=el('result');if(!box)return;
   if(!card||!card.parentNode){card=document.createElement('div');card.className='studentCard next';box.appendChild(card);}
-  card.innerHTML='<b>🦈 لم يكتمل فحص Wireshark</b><p>'+esc(message)+' تحقق من تشغيل Falcon Local Engine، ثم أعد المحاولة.</p><details><summary>مساعدة</summary><p>إذا طلب المتصفح السماح بالاتصال المحلي، اختر «سماح». نتيجة صقر الأساسية ظاهرة أعلاه.</p></details><button type="button" class="secondary falconPcapRetry">أعد المحاولة</button>';
+  card.innerHTML='<b>🦈 لم يكتمل فحص Wireshark</b><p>'+esc(message)+' نتيجة صقر الأساسية ظاهرة أعلاه.</p><details><summary>مساعدة الاتصال</summary><p>تأكد أن المحرك يعمل. في Firefox افتح إعدادات الخصوصية والأمان ← الأذونات، واسمح لـ <code>sc1561.github.io</code> بالوصول إلى «التطبيقات والخدمات على الجهاز». ثم أعد المحاولة.</p><p>يمكن التحقق من المحرك هنا: <a href="http://127.0.0.1:8765/health" target="_blank" rel="noopener">اختبار المحرك المحلي</a>.</p></details><button type="button" class="secondary falconPcapRetry">أعد المحاولة</button>';
   var button=card.querySelector('.falconPcapRetry');button.addEventListener('click',function(){button.disabled=true;button.textContent='جارٍ إعادة المحاولة…';enrichWithTshark(file,null,card);});
  }
  function runAnalysis(bytes,name,result){var fs=readFrames(bytes);if(!fs)return false;var msgs=[];for(var i=0;i<fs.length;i++){var m=packet(fs[i]);if(m)msgs.push(m);}var qs=msgs.filter(function(x){return !x.qr&&x.name}),rs=msgs.filter(function(x){return x.qr;});if(!qs.length)return false;
