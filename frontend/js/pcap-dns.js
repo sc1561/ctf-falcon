@@ -48,18 +48,23 @@
  function setEngineStatus(text,ready){
   var box=el('falconEngineStatus');
   if(!box){box=document.createElement('div');box.id='falconEngineStatus';box.className='fileStatus';var anchor=el('fileStatus')||el('drop');if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(box,anchor.nextSibling);}
-  if(box){box.textContent=text;box.classList.toggle('ready',!!ready);}
+  if(box){var msg=box.querySelector('.falconEngineMessage');if(!msg){box.textContent='';msg=document.createElement('span');msg.className='falconEngineMessage';box.appendChild(msg);}msg.textContent=text;box.classList.toggle('ready',!!ready);
+   var button=box.querySelector('.falconEngineConnect');if(!button){button=document.createElement('button');button.type='button';button.className='falconEngineConnect secondary';box.appendChild(button);button.addEventListener('click',function(){checkEngineStatus(true);});}
+   button.textContent=ready?'إعادة التحقق من المحرك':'🔌 اتصال / إعادة اتصال بالمحرك';button.disabled=!!button.dataset.checking;
+  }
  }
- async function checkEngineStatus(){
+ async function checkEngineStatus(userInitiated){
+  var box=el('falconEngineStatus'),button=box&&box.querySelector('.falconEngineConnect');if(button){button.dataset.checking='1';button.disabled=true;}
   setEngineStatus('⏳ جارٍ التحقق من المحرك المحلي وTShark…',false);
   try{
    var c=new AbortController(),timer=setTimeout(function(){c.abort()},3500);
-   var response=await fetch(localEngineUrl()+'/health',{cache:'no-store',signal:c.signal});clearTimeout(timer);
+   var response=await fetch(localEngineUrl()+'/health',{cache:'no-store',signal:c.signal,targetAddressSpace:'local'});clearTimeout(timer);
    if(!response.ok)throw new Error('HTTP '+response.status);
    var h=await response.json();if(!h.ok||!h.ready)throw new Error('ENGINE_NOT_READY');
    if(h.tshark)setEngineStatus('🟢 المحرك المحلي '+(h.version||'جاهز')+' · TShark '+(h.tshark_version||'جاهز')+' — تحليل PCAP مدعوم بـWireshark',true);
-   else setEngineStatus('🟡 المحرك المحلي متصل ('+(h.version||'')+')؛ TShark غير مكتشف، وسيستخدم صقر محلله المدمج.',false);
-  }catch(_e){setEngineStatus('⚪ المحرك المحلي غير متصل. شغّل Falcon Local Engine ثم أعد تحميل الصفحة؛ سيظل محلل PCAP المدمج متاحًا.',false);}
+   else setEngineStatus('🟡 المحرك المحلي متصل ('+(h.version||'')+')؛ TShark غير مكتشف. سيستخدم صقر محلله المدمج.',false);
+  }catch(_e){setEngineStatus('⚪ تعذر الاتصال بالمحرك المحلي. شغّله، ثم اضغط اتصال بالمحرك. إذا ظهر طلب إذن Local Network Access أو Loopback Network فاختر «سماح». إن سبق رفضه، غيّر إذن الشبكة المحلية لهذا الموقع من إعدادات الموقع ثم أعد المحاولة.',false);}
+  finally{var current=el('falconEngineStatus'),b=current&&current.querySelector('.falconEngineConnect');if(b){delete b.dataset.checking;b.disabled=false;}}
  }
  function addTsharkCard(data){
   var r=data&&data.wireshark_analysis;if(!r)return;
@@ -81,13 +86,13 @@
  async function enrichWithTshark(file){
   var controller=typeof AbortController!=='undefined'?new AbortController():null,timer=controller?setTimeout(function(){controller.abort()},60000):null;
   try{
-   var response=await fetch(localEngineUrl()+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':String(file.name||'capture.pcap').replace(/[\r\n]/g,'_').slice(0,240)},body:file,cache:'no-store',signal:controller?controller.signal:undefined});
+   var response=await fetch(localEngineUrl()+'/artifacts/analyze',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':String(file.name||'capture.pcap').replace(/[\r\n]/g,'_').slice(0,240)},body:file,cache:'no-store',signal:controller?controller.signal:undefined,targetAddressSpace:'local'});
    if(!response.ok){showBridgeFailure('رفض المحرك الملف (HTTP '+response.status+'). تحقق من سجل المحرك وحجم الملف.');return;}
    var data=await response.json();if(data&&data.ok)addTsharkCard(data);else showBridgeFailure('لم يُرجع المحرك نتيجة TShark صالحة.');
   }catch(_e){showBridgeFailure('تعذر الوصول إلى المحرك المحلي. تحقق من تشغيله ثم أعد التحليل؛ قد يمنع المتصفح الاتصال المحلي.');}
   finally{if(timer)clearTimeout(timer);}
  }
- function showBridgeFailure(message){var box=el('result');if(box)box.insertAdjacentHTML('beforeend','<div class="studentCard next"><b>🦈 تدقيق TShark المحلي</b><p>'+esc(message)+'</p><small>نتيجة محلل صقر المدمج ما زالت معروضة أعلاه.</small></div>');}
+ function showBridgeFailure(message){var box=el('result');if(box){box.insertAdjacentHTML('beforeend','<div class="studentCard next"><b>🦈 تدقيق TShark المحلي</b><p>'+esc(message)+'</p><p>إذا ظهر طلب إذن Local Network Access أو Loopback Network في المتصفح فاختر «سماح»، ثم اضغط زر اتصال المحرك أعلاه.</p><small>نتيجة محلل صقر المدمج ما زالت معروضة أعلاه.</small></div>');setEngineStatus('⚪ تعذر الوصول إلى المحرك. شغّله وامنح إذن الاتصال المحلي للموقع إذا طلبه المتصفح، ثم أعد المحاولة.',false);}}
  function runAnalysis(bytes,name,result){var fs=readFrames(bytes);if(!fs)return false;var msgs=[];for(var i=0;i<fs.length;i++){var m=packet(fs[i]);if(m)msgs.push(m);}var qs=msgs.filter(function(x){return !x.qr&&x.name}),rs=msgs.filter(function(x){return x.qr;});if(!qs.length)return false;
   var cnt={};qs.forEach(function(q){var k=q.name.toLowerCase();cnt[k]=(cnt[k]||0)+1;});var domain=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a]})[0],qset=qs.filter(function(x){return x.name.toLowerCase()===domain;}),matched=[];
   qset.forEach(function(q){var r=rs.find(function(x){return x.id===q.id&&x.name.toLowerCase()===q.name.toLowerCase()&&x.src===q.dst&&x.dst===q.src&&x.sport===q.dport&&x.dport===q.sport;});if(r&&q.ts!=null&&r.ts!=null&&r.ts>=q.ts)matched.push({q:q,r:r,dt:r.ts-q.ts});});
@@ -104,5 +109,6 @@
  window.FalconWebSessionRun=async function(){var input=el('file'),ta=el('text'),f=(input&&input.files&&input.files[0])||window.__falconDroppedFile;if(f&&!(ta&&ta.value.trim())&&/\.(pcap|pcapng|cap)$/i.test(f.name||''))return window.FalconPcapDnsRun();return previousWebSession?previousWebSession():(previous?previous():false);};
  window.FalconPcapRawTimeRun=window.FalconPcapDnsRun;window.FalconSmartRun=window.FalconPcapDnsRun;
  window.FalconPcapDnsTest={readFrames:readFrames,analyze:function(bytes,name){return runAnalysis(bytes,name,el('result'));}};
- if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',checkEngineStatus,{once:true});else checkEngineStatus();
+ function initializeEngineStatus(){setEngineStatus('🟦 المحرك المحلي اختياري لتحليل Wireshark. اضغط اتصال بالمحرك لتفعيله؛ قد يطلب المتصفح إذن الاتصال بـlocalhost.',false);}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initializeEngineStatus,{once:true});else initializeEngineStatus();
 })();
