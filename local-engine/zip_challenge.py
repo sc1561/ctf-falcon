@@ -1,7 +1,9 @@
-"""Inspect and perform bounded, wordlist-only recovery for encrypted CTF ZIPs."""
+"""Inspect encrypted CTF ZIPs and derive bounded password candidates from evidence."""
 from __future__ import annotations
 
 import io
+import re
+import unicodedata
 import zipfile
 from pathlib import PurePosixPath
 
@@ -9,6 +11,10 @@ MAX_CANDIDATES = 20_000
 MAX_PASSWORD_LENGTH = 128
 MAX_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_TOTAL_BYTES = 32 * 1024 * 1024
+MAX_AUTO_CANDIDATES = 10_000
+_TOKEN = re.compile(r"[\w][\w.@!-]{1,39}", re.UNICODE)
+_GENERIC = {"flag", "secret", "password", "passwd", "archive", "encrypted", "readme",
+            "file", "data", "txt", "zip", "pdf", "png", "jpg", "jpeg", "doc", "docx"}
 
 
 def _has_aes_extra(extra: bytes) -> bool:
@@ -118,6 +124,114 @@ def recover_zip(data: bytes, candidates: list[str], filename: str = "challenge.z
             "algorithm": "ZipCrypto", "attempts": len(normalized),
             "candidate_count": len(normalized),
             "error": "لم تطابق أي كلمة مرور من القائمة الأرشيف. أضف كلمات مرشحة مستندة إلى وصف التحدي أو ملف الكلمات المرفق."}
+
+
+def derive_candidates(data: bytes, filename: str = "challenge.zip") -> tuple[list[str], list[str]]:
+    """Build a ranked candidate set only from clues physically inside this ZIP.
+
+    Evidence sources are the archive/member names, ZIP comments, and readable
+    contents of unencrypted members. A correctly encrypted archive does not
+    normally contain its own password, so this is a bounded heuristic search.
+    """
+    evidence: list[tuple[str, str]] = [("اسم الأرشيف", filename)]
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            if archive.comment:
+                evidence.append(("تعليق الأرشيف", _decode_text(archive.comment)))
+            for entry in archive.infolist()[:MAX_CANDIDATES]:
+                evidence.append(("اسم ملف داخل الأرشيف", entry.filename))
+                if entry.comment:
+                    evidence.append(("تعليق ملف", _decode_text(entry.comment)))
+                if not entry.is_dir() and not (entry.flag_bits & 1) and entry.file_size <= 256_000:
+                    try:
+                        with archive.open(entry) as stream:
+                            content = stream.read(256_001)
+                        if len(content) <= 256_000:
+                            evidence.append(("محتوى غير مشفّر داخل الأرشيف", _decode_text(content)))
+                    except (OSError, RuntimeError, zipfile.BadZipFile):
+                        continue
+    except (OSError, zipfile.BadZipFile, ValueError):
+        return [], []
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    used_sources: list[str] = []
+
+    def add(value: str) -> None:
+        value = unicodedata.normalize("NFKC", value).strip().strip("._-!@ ")
+        if not value or len(value) > MAX_PASSWORD_LENGTH or len(value) < 3 or value in seen:
+            return
+        seen.add(value)
+        candidates.append(value)
+
+    rot13 = str.maketrans(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+        "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm")
+    for source, text in evidence:
+        if not text:
+            continue
+        if source not in used_sources:
+            used_sources.append(source)
+        normalized = unicodedata.normalize("NFKC", text)
+        tokens = _TOKEN.findall(normalized)
+        meaningful: list[str] = []
+        for token in tokens:
+            stem = token.rsplit(".", 1)[0] if "." in token else token
+            if stem.lower() in _GENERIC or len(stem) < 3:
+                continue
+            meaningful.append(stem)
+            add(stem)
+            add(stem.lower())
+            add(stem.upper())
+            add(stem[::-1])
+            if stem.isascii() and stem.isalpha():
+                add(stem.translate(rot13))
+
+        # Try adjacent clue terms and numeric suffixes before punctuation variants.
+        for left, right in zip(meaningful, meaningful[1:]):
+            if len(left) <= 20 and len(right) <= 20:
+                for separator in ("", "_", "-", "!"):
+                    add(left + separator + right)
+        numbers = list(dict.fromkeys(re.findall(r"\d{1,4}", normalized)))[:20]
+        for word in meaningful[:80]:
+            if len(word) <= 24:
+                for number in numbers:
+                    add(word + number)
+                    add(word.lower() + number)
+        if len(candidates) >= MAX_AUTO_CANDIDATES:
+            break
+    return candidates[:MAX_AUTO_CANDIDATES], list(dict.fromkeys(used_sources))
+
+
+def recover_zip_auto(data: bytes, filename: str = "challenge.zip") -> dict:
+    """Try password candidates automatically derived from evidence in the ZIP."""
+    candidates, sources = derive_candidates(data, filename)
+    if not candidates:
+        info = inspect_zip(data, filename)
+        return {"ok": True, "success": False, "encrypted": info.get("encrypted", False),
+                "algorithm": info.get("algorithm"), "attempts": 0, "candidate_count": 0,
+                "evidence_sources": sources,
+                "error": "لم يجد صقر نصًا أو تلميحًا قابلًا للاستخدام داخل الأرشيف. كلمة المرور لا تُحفظ عادةً داخل ZIP المشفّر؛ يمكن إضافة تلميح التحدي أو استخدام المسار اليدوي."}
+    result = recover_zip(data, candidates, filename)
+    result["evidence_sources"] = sources
+    result["candidate_count"] = len(candidates)
+    if not result.get("success"):
+        result["error"] = ("فحص صقر أسماء الملفات والتعليقات والمحتوى غير المشفّر داخل الأرشيف، ولم يجد كلمة المرور. "
+                           "قد لا تكفي الأدلة الموجودة في الملف وحده؛ كلمة المرور ليست محفوظة عادةً داخل ZIP المشفّر.")
+    return result
+
+
+def _decode_text(data: bytes | str) -> str:
+    if isinstance(data, str):
+        return data
+    for encoding in ("utf-8-sig", "utf-16", "cp1252", "latin-1"):
+        try:
+            text = data.decode(encoding)
+            if text and sum(ch.isprintable() or ch.isspace() for ch in text) / len(text) > 0.8:
+                return text
+        except (UnicodeError, ZeroDivisionError):
+            continue
+    return ""
 
 
 def _recover_with_pyzipper(data, candidates, filename, info, pyzipper):
