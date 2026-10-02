@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.53.0"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.53.1"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -143,10 +143,20 @@ def session_audit(url, challenge_text="", email=None):
     result["engine_version"]=VERSION
     return result
 
+def allowed_origin(h):
+    origin=h.headers.get("Origin","")
+    if origin=="https://sc1561.github.io": return origin
+    try:
+        parsed=urllib.parse.urlsplit(origin)
+        if parsed.scheme=="http" and parsed.hostname in {"localhost","127.0.0.1","::1"} and not parsed.username and not parsed.password:
+            return origin
+    except Exception: pass
+    return "https://sc1561.github.io"
+
 def reply(h,code,obj):
     b=json.dumps(obj,ensure_ascii=False).encode()
     h.send_response(code); h.send_header("Content-Type","application/json; charset=utf-8")
-    h.send_header("Access-Control-Allow-Origin","https://sc1561.github.io")
+    h.send_header("Access-Control-Allow-Origin",allowed_origin(h))
     h.send_header("Access-Control-Allow-Methods","GET,POST,OPTIONS")
     h.send_header("Access-Control-Allow-Headers","Content-Type, X-Filename")
     h.send_header("Access-Control-Allow-Private-Network","true")
@@ -154,7 +164,7 @@ def reply(h,code,obj):
 
 class H(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
-        self.send_response(204); self.send_header("Access-Control-Allow-Origin","https://sc1561.github.io")
+        self.send_response(204); self.send_header("Access-Control-Allow-Origin",allowed_origin(self))
         self.send_header("Access-Control-Allow-Methods","GET,POST,OPTIONS")
         self.send_header("Access-Control-Allow-Headers","Content-Type, X-Filename")
         self.send_header("Access-Control-Allow-Private-Network","true"); self.end_headers()
