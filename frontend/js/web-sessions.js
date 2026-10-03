@@ -821,6 +821,9 @@
   global.FalconWebSessions.isFoolLockoutPrompt = isFoolLockoutPrompt;
   global.FalconWebSessions.runFoolLockoutChallenge = runFoolLockoutChallenge;
   global.FalconWebSessionRun = async function() {
+    var tcpText=(document.getElementById('text')||{}).value||'';
+    if(global.FalconTcpCrypto && global.FalconTcpCrypto.routePrompt(tcpText))
+      return global.FalconTcpCrypto.run(tcpText);
     // Route the picoCTF No FA prompt to its artifact guidance before generic
     // web-session auditing sees the instance URL as the challenge target.
     if (global.FalconNoFaRun && await global.FalconNoFaRun()) return false;

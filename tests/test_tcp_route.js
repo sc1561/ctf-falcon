@@ -1,0 +1,23 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const root=require('path').resolve(__dirname,'..');
+let calls=[],generic=0;
+const output={innerHTML:'',classList:{remove(){},add(){}},scrollIntoView(){}};
+const solve={disabled:false,addEventListener(){}};
+const textarea={value:'## EVEN RSA CAN BE BROKEN???\nCryptographyEasy\nnc xebec.cylabacademy.net 44376'};
+const ctx={console,setTimeout,clearTimeout,AbortController,URL,location:{port:'8765',hostname:'127.0.0.1',origin:'http://127.0.0.1:8765'},document:{getElementById(id){return {result:output,solve,text:textarea}[id]||null;},querySelector(){return null;}},navigator:{},fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.endsWith('/health')?{version:'2.59.1-Student',rsa_tcp_weak_factors:true,hashcrack_tcp:true}:{ok:true,success:true,flag:'academy{ui_test_only}',analyzer:'rsa-tcp',engine_version:'2.59.1-Student'}};}};
+ctx.window=ctx;ctx.FalconSmartRun=()=>{generic++;};
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(root+'/frontend/js/web-sessions.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync(root+'/frontend/js/tcp-crypto-route.js','utf8'),ctx);
+(async()=>{
+ const route=ctx.FalconTcpCrypto.routePrompt;
+ assert(route(textarea.value));assert(route('nc xebec.cylabacademy.net 44376'));assert(route('N: 123456\ne: 65537\ncyphertext: 654'));
+ assert(!route('hello world'));assert(!route('nc host 99999'));assert(!route('## Undo\nnc host 1234'));
+ await ctx.FalconWebSessionRun();
+ assert.equal(generic,0);assert.equal(calls.length,2);
+ assert(calls[1].url.endsWith('/crypto/analyze'));assert.equal(JSON.parse(calls[1].options.body).challenge_text,textarea.value);
+ assert(output.innerHTML.includes('academy{ui_test_only}'));assert(output.innerHTML.includes('rsa-tcp'));assert.equal(solve.disabled,false);
+ ctx.fetch=async()=>{throw new Error('test network failure');};
+ await ctx.FalconWebSessionRun();assert.equal(generic,0);assert(output.innerHTML.includes('test network failure'));
+ console.log('PASS: actual WebSession dispatch -> TCP route -> HTTP request -> rendered flag; failure avoids ROT13');
+})().catch(e=>{console.error(e);process.exitCode=1;});
