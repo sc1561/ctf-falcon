@@ -9,6 +9,33 @@ function routePrompt(text){
  return /^\s*(?:N|modulus)\s*[:=]\s*(?:0x[0-9a-f]+|\d+)/im.test(text)&&/^\s*(?:ciphertext|cyphertext|c|ct)\s*[:=]\s*(?:0x[0-9a-f]+|\d+)/im.test(text);
 }
 function esc(value){return String(value==null?'':value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function solutionSteps(data){
+ var steps=Array.isArray(data.steps)?data.steps:[],items=[];
+ function add(title,body){items.push('<li style="margin:14px 0"><strong>'+esc(title)+'</strong><p>'+body+'</p></li>');}
+ function code(value){return '<code style="overflow-wrap:anywhere;direction:ltr;unicode-bidi:isolate">'+esc(value)+'</code>';}
+ if(data.analyzer==='rsa-tcp'){
+  var evidence=steps.filter(function(s){return s.phase==='rsa-decrypt';});
+  if(data.samples>0)add('قراءة بيانات RSA','قرأ صقر '+esc(data.samples)+' عينة تحتوي على N (حاصل ضرب العاملين)، وe (الأس العام)، والنص المشفّر. هذه القيم وحدها لا تضمن إمكان فك RSA.');
+  evidence.forEach(function(s){
+   add('اكتشاف الضعف في العينة '+esc(s.sample),s.method==='shared-factor-gcd'?'قارن صقر قيم N بين العينات. أعطى القاسم المشترك الأكبر gcd عاملًا أكبر من 1 وأصغر من N، فظهر عامل مشترك يمكن استخدامه.':s.method==='small-factor'?(String(s.p)==='2'?'وجد صقر أن N يقبل القسمة على 2، أي إنه زوجي. لذلك p = 2 وq = N ÷ 2؛ استخدام هذا العامل الصغير أضعف المفتاح.':'وجد صقر عاملًا صغيرًا يقسم N دون باقٍ، ثم حسب العامل الآخر بالقسمة.'): 'سجّل المحلل عاملين؛ طريقة استعادتهما: '+code(s.method||'غير موضحة'));
+   add('استعادة العاملين والتحقق من بنيتهما','N = '+code(s.n)+'<br>p = '+code(s.p)+'<br>q = '+code(s.q)+'<br>العاملان يحققان N = p × q. '+(s.prime_check==='probable-prime'?'اجتازا اختبار أولية احتماليًا، وهو اختبار قوي لكنه ليس برهان أولية قطعيًا.':''));
+   add('حساب المفتاح الخاص',String(s.p)===String(s.q)?'لأن العاملين متساويان، استخدم صقر φ(N) = p × (p − 1)، ثم حسب d بوصفه معكوس e = '+code(s.e)+' بترديد φ(N).':'حسب صقر φ(N) = (p − 1) × (q − 1)، ثم حسب d بوصفه معكوس e = '+code(s.e)+' بترديد φ(N)، بحيث e × d ≡ 1 (mod φ(N)).');
+   add('فك الرسالة','حسب صقر m = c^d mod N، حيث c هو النص المشفّر. ثم حوّل العدد m إلى بايتات وقرأ الرسالة النصية.'+(typeof s.plaintext==='string'?'<br>الناتج: '+code(s.plaintext):''));
+   add('التحقق بإعادة التشفير',s.reencryption_verified===true?'أعاد صقر الحساب c′ = m^e mod N. تطابقت النتيجة مع c الأصلي، فثبت أن الرسالة المفكوكة تطابق النص المشفّر.':'لم يؤكد المحلل تطابق إعادة التشفير؛ لا يُعتمد هذا المرشح بوصفه حلًا متحققًا.');
+  });
+  if(!evidence.length)add('موضع التوقف','لا توجد خطوة فك RSA ناجحة مسجلة في هذه النتيجة. '+esc((data.warnings||[]).join(' '))+' لا يعرض صقر عوامل أو مفتاحًا خاصًا لم يستعدهما.');
+ }else if(data.analyzer==='hashcrack-tcp'){
+  steps.filter(function(s){return s.phase==='hash-recovery';}).forEach(function(s,i){
+   add('قراءة التجزئة — المحاولة '+(i+1),'التجزئة: '+code(s.hash)+'<br>طولها '+esc(String(s.hash||'').length)+' خانة سداسية. الخوارزميات المرشحة: '+code((s.candidate_algorithms||[]).join(', '))+'. الطول يرشّح الخوارزمية ولا يثبتها.');
+   add('مطابقة الكلمات محليًا',s.matched?'جرّب صقر كلمات من قائمته والكلمات المحلية المتاحة، وحسب تجزئة كل كلمة. وجد مطابقة باستخدام '+code(s.algorithm)+' بعد '+esc(s.attempts)+' محاولة.'+(s.plaintext!==undefined?'<br>الكلمة المستعادة: '+code(s.plaintext):''):'لم يجد صقر مطابقة ضمن حدود البحث. استعادة كلمة مرور ضعيفة تعتمد على وجود الكلمة في القائمة، وليست عكسًا رياضيًا للتجزئة.');
+   if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
+  });
+  if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else return '';
+ add('هل اكتمل الحل؟',data.success===true&&data.flag?'وجد صقر العلم في الناتج: '+code(data.flag)+'. قبول منصة التحدي للعلم يؤكد اكتمال الحل.':'لم يظهر علم مؤكد في هذه النتيجة؛ لا تعني استعادة كلمة أو فك رسالة عادية اكتمال التحدي.');
+ return '<details class="tech" style="margin-top:16px"><summary style="cursor:pointer;font-weight:bold;padding:12px">📚 كيف حلّ صقر التحدي؟</summary><div class="techBody"><p>الشرح التالي مبني على الأدلة المسجلة في هذه المحاولة.</p><ol>'+items.join('')+'</ol></div></details>';
+}
+
 async function run(text){
  if(busy)return false;
  busy=true;
@@ -28,10 +55,10 @@ async function run(text){
   var data=await response.json();
   if(!response.ok)throw new Error(data.error||data.detail||('HTTP '+response.status));
   var solved=data.success===true&&typeof data.flag==='string'&&data.flag.length>0;
-  out.innerHTML='<h2>'+(solved?'🚩 استخرج صقر العلم':'🔐 لم يُستخرج علم مؤكد')+'</h2><p>المحرك: '+esc(data.engine_version||health.version)+' · المحلل: '+esc(data.analyzer||'غير محدد')+'</p>'+(solved?'<div class="flag">'+esc(data.flag)+'</div>':'')+(data.explanation_ar||[]).map(function(t){return '<p>'+esc(t)+'</p>';}).join('')+(data.warnings||[]).map(function(t){return '<div class="finding warn">'+esc(t)+'</div>';}).join('')+'<details><summary>🔧 التفاصيل التقنية</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>';
+  out.innerHTML='<h2>'+(solved?'🚩 استخرج صقر العلم':'🔐 لم يُستخرج علم مؤكد')+'</h2><p>المحرك: '+esc(data.engine_version||health.version)+' · المحلل: '+esc(data.analyzer||'غير محدد')+'</p>'+(solved?'<div class="flag">'+esc(data.flag)+'</div>':'')+(data.explanation_ar||[]).map(function(t){return '<p>'+esc(t)+'</p>';}).join('')+(data.warnings||[]).map(function(t){return '<div class="finding warn">'+esc(t)+'</div>';}).join('')+solutionSteps(data)+'<details><summary>🔧 التفاصيل التقنية</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>';
  }catch(error){out.innerHTML='<h2>⚠️ تعذر إكمال التحليل</h2><p>'+esc(error.message||error)+'</p><p>تأكد من تشغيل المحرك ومن صلاحية عنوان المثيل. لم يُطبّق ROT13 على وصف التحدي.</p>';}
  finally{if(timer)clearTimeout(timer);busy=false;if(button)button.disabled=previous;if(out.scrollIntoView)out.scrollIntoView({block:'start'});}
  return false;
 }
-global.FalconTcpCrypto={routePrompt:routePrompt,run:run};
+global.FalconTcpCrypto={routePrompt:routePrompt,run:run,solutionSteps:solutionSteps};
 })(window);
