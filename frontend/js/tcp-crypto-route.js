@@ -40,8 +40,8 @@ function solutionSteps(data){
   if(!evidence.length)add('موضع التوقف','لا توجد خطوة فك RSA ناجحة مسجلة في هذه النتيجة. '+esc((data.warnings||[]).join(' '))+' لا يعرض صقر عوامل أو مفتاحًا خاصًا لم يستعدهما.');
  }else if(data.analyzer==='cheese-affine'){
   steps.filter(function(s){return s.phase==='cheese-affine';}).forEach(function(s){
-   add('الخطوة 1 — استعلام نص معروف','أرسل الأبجدية إلى خيار encrypt في الجلسة نفسها. النص: '+code(s.known_plaintext)+'؛ الناتج: '+code(s.oracle_ciphertext));
-   add('الخطوة 2 — حل التحويل الخطي','رقّم A=0 إلى Z=25 وتحقق من y=(a*x+b) mod 26 لجميع الحروف. a='+code(s.a)+'، b='+code(s.b)+'، معكوس a='+code(s.inverse)+'.');
+   add('الخطوة 1 — استعلام نص معروف','أرسل اسم الجبن المعروف Cheddar إلى خيار encrypt في الجلسة نفسها. النص: '+code(s.known_plaintext)+'؛ الناتج: '+code(s.oracle_ciphertext));
+   add('الخطوة 2 — حل التحويل الخطي','رقّم A=0 إلى Z=25 وتحقق من y=(a*x+b) mod 26 لكل حروف النص المعروف، ولم يقبل إلا معاملات وحيدة. a='+code(s.a)+'، b='+code(s.b)+'، معكوس a='+code(s.inverse)+'.');
    add('الخطوة 3 — فك الجبن والتحقق','طبق x=a⁻¹(y−b) mod 26 على '+code(s.ciphertext)+'؛ الناتج '+code(s.plaintext)+'. تحقق بإعادة التشفير قبل الإرسال.');
   });
   add('نتيجة الخادم',data.live_verified?'ظهر العلم في رد الخادم.':esc((data.warnings||[]).join(' ')));
