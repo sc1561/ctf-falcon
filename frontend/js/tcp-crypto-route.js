@@ -15,8 +15,16 @@ function solutionSteps(data){
  function code(value){return '<code style="overflow-wrap:anywhere;direction:ltr;unicode-bidi:isolate">'+esc(value)+'</code>';}
  if(data.analyzer==='rsa-tcp'){
   var evidence=steps.filter(function(s){return s.phase==='rsa-decrypt';});
-  if(data.samples>0)add('قراءة بيانات RSA','قرأ صقر '+esc(data.samples)+' عينة تحتوي على N (حاصل ضرب العاملين)، وe (الأس العام)، والنص المشفّر. هذه القيم وحدها لا تضمن إمكان فك RSA.');
+  if(data.samples>0)add('قراءة بيانات RSA','قرأ صقر '+esc(data.samples)+' عينة تحتوي على N (معامل RSA)، وe (الأس العام)، والنص المشفّر. هذه القيم وحدها لا تضمن إمكان فك RSA.');
   evidence.forEach(function(s){
+   if(s.method==='exact-low-exponent-root'){
+    add('الخطوة 1 — الأس الصغير','الأس e = '+code(s.e)+'، وطول n هو '+code(s.n_bits)+' بت وطول c هو '+code(s.c_bits)+' بت. اختبر صقر هل النص المشفر قوة صحيحة كاملة.');
+    add('الخطوة 2 — الجذر الصحيح','حسب الجذر الصحيح من الدرجة e بحسابات أعداد صحيحة، دون تقريب عشري. استعاد m = '+code(s.m)+'.');
+    add('الخطوة 3 — إثبات الاختصار','تحقق من m^e = c تمامًا، ومن c &lt; n. لذلك لم يغيّر الاختزال بترديد n قيمة القوة. لم يحتج إلى عوامل n أو المفتاح الخاص، ولا إلى خوارزمية Coppersmith الشبكية في هذه العينة.');
+    add('الخطوة 4 — قراءة الرسالة','حوّل m إلى بايتات بترتيب big-endian. الناتج: '+code(s.plaintext));
+    add('الخطوة 5 — إعادة التشفير',s.reencryption_verified?'تحقق من m^e mod n = c الأصلي.':'لم يثبت تطابق إعادة التشفير.');
+    return;
+   }
    if(s.method==='wiener-small-d'){
     add('الخطوة 1 — اكتشاف المفتاح الخاص الصغير','طول n هو '+code(s.n_bits)+' بت، وطول d المستعاد '+code(s.d_bits)+' بت. نجح هجوم Wiener باستخدام الكسور المستمرة، دون الحاجة إلى Boneh–Durfee في هذه العينة.');
     add('الخطوة 2 — الكسور المستمرة','وسّع صقر e/n إلى كسور مستمرة، واختبر المقاربات k/d. عند المقاربة رقم '+code(s.convergent)+' وجد k = '+code(s.k)+' وd = '+code(s.d)+'.');
