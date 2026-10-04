@@ -40,6 +40,16 @@ function solutionSteps(data){
    if(s.output)add('تجميع الحروف','قرأ الحروف بترتيب الأسطر من اليسار إلى اليمين: '+code(s.output));
   });
   if(!steps.length)add('موضع التوقف',esc((data.warnings||[]).join(' '))+' لم يستبدل صقر الرموز غير الواضحة بتخمين.');
+ }else if(data.challenge==='Timestamped Secrets'||steps.some(function(s){return s.phase==='timestamp-input';})){
+  steps.filter(function(s){return s.phase==='timestamp-input';}).forEach(function(s){
+   add('الخطوة 1 — قراءة الرسالة','استخرج صقر وقت Unix التقريبي: '+code((s.centers||[]).join(', '))+'، وحوّل النص المشفر من Hex إلى '+esc(s.bytes)+' بايت.<br>النص المشفر: '+code(s.ciphertext_hex));
+   add('الخطوة 2 — تحديد ضعف المفتاح','المفتاح مشتق من وقت قابل للتوقع. يجرب صقر الوقت المذكور أولًا، ثم الأوقات قبله وبعده ضمن ±'+esc(s.window_seconds)+' ثانية.');
+  });
+  steps.filter(function(s){return s.phase==='timestamp-decrypt';}).forEach(function(s){
+   add('الخطوة 3 — اشتقاق المفتاح الناجح','حوّل الوقت إلى نص UTF-8، وحسب SHA-256 ثم أخذ أول 16 بايت: '+code(s.kdf)+'<br>الوقت الناجح: '+code(s.timestamp)+'؛ الفرق عن الوقت التقريبي: '+code(s.offset_seconds)+' ثانية؛ المحاولات: '+code(s.attempts)+'<br>المفتاح بصيغة Hex: '+code(s.key_hex));
+   add('الخطوة 4 — فك AES والتحقق','فك صقر '+code(s.mode)+' بالمفتاح المستعاد، ثم تحقق من بايتات حشو PKCS#7 قبل إزالتها، ومن وجود صيغة علم معروفة.<br>الناتج: '+code(s.plaintext));
+  });
+  if(!steps.some(function(s){return s.phase==='timestamp-decrypt';}))add('موضع التوقف','لم يسجل المحلل فك تشفير ناجحًا. '+esc((data.explanation_ar||[]).join(' ')));
  }else if(steps.some(function(s){return s.phase==='text-decode';})){
   steps.filter(function(s){return s.phase==='text-decode';}).forEach(function(s,i){
    var why=s.operation==='Base64'||s.operation==='Base64url'?'فك صقر ترميز Base64 لاستعادة الطبقة التالية.':s.operation==='Python bytes literal'?'قرأ صقر القيمة داخل غلاف البايتات b&#39;…&#39; كبيانات، دون تشغيل كود.':/^Caesar shift /.test(s.operation)?'أعاد صقر كل حرف '+esc(s.operation.split(' ').pop())+' مواضع إلى الخلف، وأبقى الأرقام والرموز.':'طبّق صقر التحويل المسجل: '+code(s.operation);
@@ -47,7 +57,7 @@ function solutionSteps(data){
   });
  }else return '';
  add('هل اكتمل الحل؟',data.success===true&&data.flag?'وجد صقر العلم في الناتج: '+code(data.flag)+'. قبول منصة التحدي للعلم يؤكد اكتمال الحل.':'لم يظهر علم مؤكد في هذه النتيجة؛ لا تعني استعادة كلمة أو فك رسالة عادية اكتمال التحدي.');
- return '<details class="tech" style="margin-top:16px"><summary style="cursor:pointer;font-weight:bold;padding:12px">📚 كيف حلّ صقر التحدي؟</summary><div class="techBody"><p>الشرح التالي مبني على الأدلة المسجلة في هذه المحاولة.</p><ol>'+items.join('')+'</ol></div></details>';
+ return '<details open class="tech" style="margin-top:16px"><summary style="cursor:pointer;font-weight:bold;padding:12px">📚 كيف حلّ صقر التحدي؟</summary><div class="techBody"><p>الشرح التالي مبني على الأدلة المسجلة في هذه المحاولة.</p><ol>'+items.join('')+'</ol></div></details>';
 }
 
 async function run(text,files){
