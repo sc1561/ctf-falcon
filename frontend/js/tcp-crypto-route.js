@@ -37,6 +37,15 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='cluster-rsa'){
+  steps.filter(function(s){return s.phase==='cluster-decrypt';}).forEach(function(s){
+   add('الخطوة 1 — قراءة RSA','قرأ صقر n وe وct من ملف التحدي. الأس العام e = '+code(s.e)+'. لا تفترض هذه العينة أن n حاصل ضرب عاملين فقط.');
+   add('الخطوة 2 — البحث عن عوامل متقاربة','حسب الجذر من الرتبة '+code(s.root_order)+' لـn: '+code(s.root)+'، وبحث ضمن ±'+code(s.window)+' حوله. وجد '+code((s.factors||[]).length)+' عوامل.<br>العوامل: '+code((s.factors||[]).join(' × ')));
+   add('الخطوة 3 — التحقق وحساب φ(n)','اجتازت العوامل اختبار أولية احتماليًا، وتحقق صقر أن حاصل ضربها يساوي n بالضبط. حسب φ(n) = ∏ pᵃ⁻¹(p − 1)، مع احتساب تكرار كل عامل؛ للعوامل المختلفة تصبح ∏(p − 1).<br>φ(n) = '+code(s.phi));
+   add('الخطوة 4 — استعادة المفتاح وفك RSA','حسب d = e⁻¹ mod φ(n)، ثم m = ct^d mod n وحوّل العدد إلى بايتات.<br>d = '+code(s.d)+'<br>الرسالة: '+code(s.plaintext));
+   add('الخطوة 5 — التحقق بإعادة التشفير',s.reencryption_verified?'أعاد m^e mod n وطابق النتيجة مع ct الأصلي.':'لم يثبت تطابق إعادة التشفير.');
+  });
+  if(!data.success)add('موضع التوقف',esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='cryptomaze-lfsr-aes'||data.challenge==='cryptomaze'){
   steps.filter(function(s){return s.phase==='cryptomaze-key';}).forEach(function(s){
    add('الخطوة 1 — قراءة الحالة ومواضع taps','الحالة الابتدائية: '+code(JSON.stringify(s.initial_state))+'<br>مواضع taps، بفهرسة تبدأ من صفر: '+code(JSON.stringify(s.taps)));
