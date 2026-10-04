@@ -41,8 +41,8 @@ function solutionSteps(data){
  }else if(data.analyzer==='cheese-sha256'){
   steps.filter(function(s){return s.phase==='cheese-input';}).forEach(function(s){add('الخطوة 1 — تحديد مساحة البحث','قرأ صقر '+code(s.cheeses)+' اسم جبن. الملح خانتان Hex، أي '+code(s.salt_candidates)+' احتمالًا من 00 إلى ff.');});
   steps.filter(function(s){return s.phase==='cheese-recovery';}).forEach(function(s){
-   add('الخطوة 2 — البحث المحلي','حسب SHA-256 للاسم والملح قبل الاسم وبعده، مع اختبار حالة الأحرف. التجزئة: '+code(s.hash)+'؛ عدد المحاولات: '+code(s.attempts));
-   add('الخطوة 3 — التحقق',s.matched?'طابقت التجزئة كاملة. الجبن: '+code(s.cheese)+'؛ الملح: '+code(s.salt)+'؛ الترتيب: '+code(s.order):'لم يجد مطابقة ضمن القائمة وحدود البحث.');
+   add('الخطوة 2 — البحث المحلي','حسب SHA-256 للاسم والملح قبل الاسم وبعده، مع اختبار حالة الأحرف والملح كبايت خام أو نص Hex. التجزئة: '+code(s.hash)+'؛ عدد المحاولات: '+code(s.attempts));
+   add('الخطوة 3 — التحقق',s.matched?'طابقت التجزئة كاملة. الجبن: '+code(s.cheese)+'؛ الملح: '+code(s.salt)+'؛ الترتيب: '+code(s.order)+'؛ تمثيل الملح: '+code(s.salt_encoding):'لم يجد مطابقة ضمن القائمة وحدود البحث.');
   });
   add('الخطوة 4 — نتيجة المثيل',data.live_verified?'ظهر العلم في رد الخادم بعد التفاعل.':'لم يظهر علم متحقق منه من الخادم. '+esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='hashcrack-tcp'){
