@@ -81,46 +81,57 @@ def _valid_flag(raw: bytes) -> str | None:
     return html.unescape(m.group(0).decode("utf-8", "replace"))
 
 
+def _decode_text_path(raw: bytes):
+    """Prioritize structured encodings; preserve the exact successful path."""
+    import ast
+    import heapq
+    import time
+    counter=0
+    todo=[(0,counter,raw,[])]
+    seen={raw}; processed=0; deadline=time.monotonic()+3
+    while todo and processed<512 and time.monotonic()<deadline:
+        cost,_,data,trace=heapq.heappop(todo);processed+=1
+        flag=_valid_flag(data)
+        if flag:return flag,trace
+        if len(trace)>=7 or len(data)>2_000_000:continue
+        try:s=data.decode('utf-8').strip()
+        except UnicodeDecodeError:continue
+        candidates=[]
+        # Accept a literal constant only, never an expression or executable code.
+        if len(s)<=65536 and re.match(r"^[bB][\"']",s):
+            try:
+                node=ast.parse(s,mode='eval').body
+                if isinstance(node,ast.Constant) and isinstance(node.value,bytes):
+                    candidates.append((node.value,'Python bytes literal',1))
+            except (ValueError,SyntaxError,RecursionError):pass
+        compact=re.sub(r'\s+','',s)
+        if len(compact)>=4 and re.fullmatch(r'[A-Za-z0-9+/=_-]+',compact):
+            for decoder,name in ((base64.b64decode,'Base64'),(base64.urlsafe_b64decode,'Base64url')):
+                try:candidates.append((decoder(compact+'='*((-len(compact))%4)),name,1))
+                except (ValueError,binascii.Error):pass
+        if re.fullmatch(r'(?:0x)?[0-9a-fA-F\s]+',s):
+            try:candidates.append((bytes.fromhex(re.sub(r'0x|\s','',s,flags=re.I)),'Hex',1))
+            except ValueError:pass
+        candidates.extend([(unquote(s).encode(),'URL decode',1),(s[::-1].encode(),'reverse',3)])
+        for k in range(1,26):
+            out=''.join(chr((ord(ch)-97-k)%26+97) if 'a'<=ch<='z' else chr((ord(ch)-65-k)%26+65) if 'A'<=ch<='Z' else ch for ch in s)
+            candidates.append((out.encode(),'ROT13' if k==13 else f'Caesar shift {k}',4))
+        for nxt,op,weight in candidates:
+            if not nxt or nxt in seen or len(nxt)>2_000_000:continue
+            if sum(32<=b<127 or b in (9,10,13) for b in nxt)/len(nxt)<.78:continue
+            step={'phase':'text-decode','operation':op,'input':data.decode('utf-8','replace')[:2000],
+                  'output':nxt.decode('utf-8','replace')[:2000], 'truncated':len(data)>2000 or len(nxt)>2000}
+            trail=trace+[step]
+            flag=_valid_flag(nxt)
+            if flag:return flag,trail
+            if len(seen)>=2048:continue
+            seen.add(nxt);counter+=1;heapq.heappush(todo,(cost+weight,counter,nxt,trail))
+    return None,[]
+
+
 def _text_decodes(raw: bytes):
-    """Small bounded decoder graph; retain only printable intermediate text."""
-    todo = [(raw, "original", 0)]
-    seen = {raw}
-    while todo and len(seen) < 250 and len(todo) < 300:
-        data, label, depth = todo.pop(0)
-        flag = _valid_flag(data)
-        if flag: return flag, label
-        if depth >= 7: continue
-        candidates = []
-        try:
-            s = data.decode("utf-8").strip()
-        except UnicodeDecodeError:
-            continue
-        candidates.append((codecs.decode(s, "rot_13").encode(), "ROT13"))
-        candidates.append((s[::-1].encode(), "reverse"))
-        candidates.append((unquote(s).encode(), "URL decode"))
-        compact = re.sub(r"\s+", "", s)
-        if len(compact) >= 4 and re.fullmatch(r"[A-Za-z0-9+/=_-]+", compact):
-            for decoder, name in ((base64.b64decode, "Base64"), (base64.urlsafe_b64decode, "Base64url")):
-                try: candidates.append((decoder(compact + "=" * ((-len(compact)) % 4)), name))
-                except (ValueError, binascii.Error): pass
-        if re.fullmatch(r"(?:0x)?[0-9a-fA-F\s]+", s) and len(re.sub(r"\W", "", s)) % 2 == 0:
-            try: candidates.append((bytes.fromhex(re.sub(r"0x|\s", "", s, flags=re.I)), "Hex"))
-            except ValueError: pass
-        # Caesar rotations help the classic rotation challenge; ROT13 is also
-        # covered above, and the flag regex selects a unique recognizable output.
-        for k in range(1, 26):
-            out = []
-            for ch in s:
-                if "a" <= ch <= "z": out.append(chr((ord(ch)-97-k)%26+97))
-                elif "A" <= ch <= "Z": out.append(chr((ord(ch)-65-k)%26+65))
-                else: out.append(ch)
-            candidates.append(("".join(out).encode(), f"Caesar shift {k}"))
-        for nxt, op in candidates:
-            if nxt in seen or len(nxt) > 2_000_000: continue
-            # Avoid branching on binary garbage or empty output.
-            if nxt and sum(32 <= b < 127 or b in (9, 10, 13) for b in nxt) / len(nxt) < .78: continue
-            seen.add(nxt); todo.append((nxt, label + " → " + op, depth + 1))
-    return None, None
+    flag,trace=_decode_text_path(raw)
+    return flag,('original'+''.join(' → '+step['operation'] for step in trace) if flag else None)
 
 
 def _a1z26(raw: bytes) -> str | None:
@@ -289,8 +300,8 @@ def _cryptomaze(text: str) -> tuple[str | None,list[str]]:
 
 
 def _jpeg_comments(raw: bytes) -> list[bytes]:
-    """Extract JPEG COM (0xFFFE) segments without relying on EXIF/Pillow."""
-    out=[]; i=2 if raw.startswith(b"\\xff\\xd8") else 0
+    """Extract JPEG COM segments directly, so StegoRSA does not depend on EXIF tools."""
+    out=[]; i=2 if raw.startswith(b"\xff\xd8") else 0
     while i+4 <= len(raw):
         if raw[i] != 0xFF:
             i += 1; continue
@@ -309,9 +320,7 @@ def _jpeg_comments(raw: bytes) -> list[bytes]:
 
 
 def _metadata_payloads(image: Path) -> tuple[list[bytes], list[str]]:
-    raw=image.read_bytes()
-    payloads=list(_jpeg_comments(raw))
-    notes=[]
+    payloads=list(_jpeg_comments(image.read_bytes())); notes=[]
     if payloads: notes.append(f"اكتشف صقر {len(payloads)} حقل JPEG Comment (COM) مباشرة من بنية الملف.")
     try:
         from PIL import Image
@@ -322,9 +331,7 @@ def _metadata_payloads(image: Path) -> tuple[list[bytes], list[str]]:
             for value in (im.info or {}).values():
                 if isinstance(value,bytes): payloads.append(value)
                 elif isinstance(value,str): payloads.append(value.encode("utf-8","ignore"))
-    except Exception:
-        # Raw JPEG COM parsing above remains available when Pillow is absent.
-        pass
+    except Exception: pass
     return payloads,notes
 
 
@@ -332,8 +339,7 @@ def _key_candidates(payloads: list[bytes]) -> list[tuple[bytes,str]]:
     out=[]; seen=set()
     for raw in payloads:
         candidates=[(raw.strip(),"metadata")]
-        text=raw.decode("ascii","ignore").strip()
-        compact=re.sub(r"\\s+","",text)
+        text=raw.decode("ascii","ignore").strip(); compact=re.sub(r"\s+","",text)
         if len(compact)>=100 and len(compact)%2==0 and re.fullmatch(r"[0-9a-fA-F]+",compact):
             try:candidates.append((bytes.fromhex(compact),"hex"))
             except ValueError:pass
@@ -341,9 +347,8 @@ def _key_candidates(payloads: list[bytes]) -> list[tuple[bytes,str]]:
             try:candidates.append((base64.b64decode(compact+"="*((-len(compact))%4)),"base64"))
             except Exception:pass
         for data,label in candidates:
-            if b"-----BEGIN " not in data or b"PRIVATE KEY-----" not in data: continue
-            if data not in seen:
-                seen.add(data);out.append((data,label))
+            if b"-----BEGIN " in data and b"PRIVATE KEY-----" in data and data not in seen:
+                seen.add(data); out.append((data,label))
     return out
 
 
@@ -353,7 +358,7 @@ def _stegorsa(root: Path, files: dict[str,Path]) -> tuple[str | None,list[str]]:
     try:payloads,notes=_metadata_payloads(image)
     except Exception as exc:return None,["تعذر قراءة Metadata للصورة: "+str(exc)[:120]]
     keys=_key_candidates(payloads)
-    if not keys:return None,notes+["فُحصت JPEG Comments وEXIF/XMP المتاحة، لكن لم يُستخرج PEM private key من Hex/Base64."]
+    if not keys:return None,notes+["فُحصت JPEG Comments وEXIF المتاحة، لكن لم يُستخرج PEM private key من Hex/Base64."]
     try:
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography.hazmat.primitives.asymmetric import padding
@@ -373,11 +378,9 @@ def _stegorsa(root: Path, files: dict[str,Path]) -> tuple[str | None,list[str]]:
             except Exception:continue
             flag=_valid_flag(pt)
             if flag:
-                notes.extend([
-                    f"حوّل صقر Metadata من {encoding} إلى PEM private key صالح.",
-                    f"تعرّف على RSA{('-'+str(bits)) if bits else ''} ونجح فك التشفير باستخدام {pad_name}.",
-                    "مرّر النص الناتج إلى Flag Hunter وتحقق من صيغة العلم قبل إعلان النجاح.",
-                ])
+                notes.extend([f"حوّل صقر Metadata من {encoding} إلى PEM private key صالح.",
+                              f"تعرّف على RSA{('-'+str(bits)) if bits else ''} ونجح فك التشفير باستخدام {pad_name}.",
+                              "مرّر النص الناتج إلى Flag Hunter وتحقق من صيغة العلم قبل إعلان النجاح."])
                 return flag,notes
     return None,notes+["استُخرج PEM private key، لكن PKCS#1 v1.5 وOAEP-SHA1 وOAEP-SHA256 لم تنتج علمًا مؤكدًا."]
 
@@ -413,27 +416,64 @@ def _c3(contents: list[tuple[str,bytes]]) -> tuple[str | None,list[str]]:
     return (wrapper,["فك صقر جدولَي الاستبدال دوريًا، ثم حاكى بأمان أخذ محارف stage2 عند مؤشرات المكعبات الكاملة."]) if inner else (None,["فُكّت المرحلة الأولى لكن لم ينتج نصًا للعلم."])
 
 
-def _slug_from_files(present: dict[str, Path]) -> str | None:
-    """Identify high-confidence challenges from the uploaded file set itself."""
-    names = set(present)
-    # StegoRSA has a distinctive two-file signature.  File evidence wins;
-    # challenge text is only an optional hint.
-    if {"flag.enc", "image.jpg"}.issubset(names):
-        return "stegorsa"
-    return None
+def _slug_from_files(present: dict[str, Path]) -> tuple[str | None, str | None]:
+    """Recognize high-confidence challenge families from their file set.
+
+    File evidence is deliberately checked before asking for narrative text so
+    drag-and-drop classroom challenges work even when the description is blank.
+    """
+    names=set(present)
+    # Unique two-file signature used by the StegoRSA classroom challenge.
+    if {"image.jpg", "flag.enc"}.issubset(names):
+        return "stegorsa", "تعرّف صقر على StegoRSA تلقائيًا من وجود image.jpg و flag.enc دون الحاجة إلى وصف."
+    # Only infer signatures that are sufficiently distinctive; ambiguous file
+    # names such as output.txt are intentionally left to the challenge text.
+    if {"secret.enc", "password.enc"}.issubset(names):
+        return "rsa_oracle", "تعرّف صقر على عائلة RSA Oracle من أسماء الملفين."
+    if {"enc_flag", "custom_encryption.py"}.issubset(names):
+        return "custom encryption", "تعرّف صقر على Custom Encryption من مجموعة الملفات."
+    if {"ciphertext", "convert.py"}.issubset(names):
+        return "c3", "تعرّف صقر على C3 من مجموعة الملفات."
+    if "enc_flag" in names:
+        return "interencdec", "اختار صقر مسار فك الترميزات من ملف enc_flag؛ نجاحه يعتمد على البيانات ولا يفترض اسم التحدي."
+    return None, None
 
 
 def analyze(challenge_text: str, analysis_dir: Path | str) -> dict:
-    root = Path(analysis_dir)
-    present = _files(root)
-    slug = _slug(challenge_text) or _slug_from_files(present)
+    root=Path(analysis_dir); present=_files(root)
+    import hashcrack_tcp
+    import rsa_tcp
+    if hashcrack_tcp.endpoint(challenge_text) and _slug(challenge_text) in (None, "hashcrack"):
+        return rsa_tcp.analyze_tcp(challenge_text, root)
+    hash_text = challenge_text
+    for name, path in present.items():
+        if path.suffix.lower() in (".txt", ".log") and path.name.lower() not in ("rockyou.txt", "passwords.txt"):
+            try:
+                if path.stat().st_size <= 65536:
+                    hash_text += "\n" + path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+    if rsa_tcp.records(hash_text):
+        return rsa_tcp.analyze_text(hash_text)
+    if _slug(challenge_text) in (None, "hashcrack") and hashcrack_tcp.hashes(hash_text):
+        return hashcrack_tcp.analyze(hash_text, root)
+    slug = _slug(challenge_text)
+    auto_note=None
     if not slug:
-        return {"ok":False,"recognized":False,"error":"لم يتعرف صقر على نوع التحدي من الملفات أو الوصف."}
+        slug,auto_note=_slug_from_files(present)
+    if not slug:
+        return {"ok":False,"recognized":False,"error":"لم يتعرف صقر على نوع تحدي Cryptography من الملفات أو العنوان.",
+                "files_seen":sorted(present)[:100]}
     title, required = CHALLENGES[slug]
     missing=[name for name in required if name.lower() not in present]
-    result={"ok":True,"recognized":True,"challenge":title,"analyzer":"cryptography","category":("crypto/stego_rsa" if slug=="stegorsa" else "cryptography"),"success":False,
+    result={"ok":True,"recognized":True,"challenge":title,"analyzer":"cryptography","success":False,
             "flag":None,"files_found":[n for n in required if n.lower() in present],"missing_files":missing,
             "steps":[],"explanation_ar":[],"warnings":[]}
+    if auto_note:
+        result["explanation_ar"].append(auto_note)
+        result["recognized_from"]="files"
+    else:
+        result["recognized_from"]="description"
     inline = "\n".join(re.findall(r"`([^`]{8,20000})`", challenge_text or ""))
     contents=[]
     for name in required:
@@ -454,7 +494,9 @@ def analyze(challenge_text: str, analysis_dir: Path | str) -> dict:
         sources=([(n,d) for n,d in contents if not n.lower().endswith((".py",".jpg",".png"))])
         if inline:sources.append(("challenge text",inline.encode()))
         for name,data in sources:
-            flag,_=_text_decodes(data)
+            flag,decode_steps=_decode_text_path(data)
+            if flag:
+                result["steps"].extend(dict(step,source=name) for step in decode_steps)
             if not flag:flag=_a1z26(data)
             if flag:result["explanation_ar"].append(f"حلّل صقر {name} بتحويلات نصية محدودة وتحقق من صيغة العلم.");break
     elif slug=="the numbers":

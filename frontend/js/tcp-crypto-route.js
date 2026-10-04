@@ -31,6 +31,11 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(steps.some(function(s){return s.phase==='text-decode';})){
+  steps.filter(function(s){return s.phase==='text-decode';}).forEach(function(s,i){
+   var why=s.operation==='Base64'||s.operation==='Base64url'?'فك صقر ترميز Base64 لاستعادة الطبقة التالية.':s.operation==='Python bytes literal'?'قرأ صقر القيمة داخل غلاف البايتات b&#39;…&#39; كبيانات، دون تشغيل كود.':/^Caesar shift /.test(s.operation)?'أعاد صقر كل حرف '+esc(s.operation.split(' ').pop())+' مواضع إلى الخلف، وأبقى الأرقام والرموز.':'طبّق صقر التحويل المسجل: '+code(s.operation);
+   add('الخطوة '+(i+1)+' — '+s.operation,why+'<br>قبل: '+code(s.input)+'<br>بعد: '+code(s.output)+(s.truncated?'<br>عُرض جزء من النص الطويل فقط.':''));
+  });
  }else return '';
  add('هل اكتمل الحل؟',data.success===true&&data.flag?'وجد صقر العلم في الناتج: '+code(data.flag)+'. قبول منصة التحدي للعلم يؤكد اكتمال الحل.':'لم يظهر علم مؤكد في هذه النتيجة؛ لا تعني استعادة كلمة أو فك رسالة عادية اكتمال التحدي.');
  return '<details class="tech" style="margin-top:16px"><summary style="cursor:pointer;font-weight:bold;padding:12px">📚 كيف حلّ صقر التحدي؟</summary><div class="techBody"><p>الشرح التالي مبني على الأدلة المسجلة في هذه المحاولة.</p><ol>'+items.join('')+'</ol></div></details>';

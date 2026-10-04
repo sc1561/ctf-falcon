@@ -20,6 +20,7 @@ vm.runInContext(fs.readFileSync(root+'/frontend/js/tcp-crypto-route.js','utf8'),
  const hash=explain({analyzer:'hashcrack-tcp',steps:[{phase:'hash-recovery',hash:'a'.repeat(32),candidate_algorithms:['md5'],matched:true,algorithm:'md5',attempts:3,sent:true}]});
  assert(hash.includes('32'));assert(hash.includes('md5'));assert(hash.includes('الإرسال وحده لا يثبت'));
  const escaped=explain({analyzer:'rsa-tcp',steps:[],warnings:['<img onerror=alert(1)>']});assert(!escaped.includes('<img'));assert(escaped.includes('&lt;img'));
+ const decoded=explain({analyzer:'cryptography',success:true,flag:'academy{test}',steps:[{phase:'text-decode',operation:'Python bytes literal',input:'b\'abc\'',output:'abc'},{phase:'text-decode',operation:'Caesar shift 7',input:'hjh',output:'aca'}]});assert(decoded.includes('الخطوة 1'));assert(decoded.includes('7'));assert(decoded.includes('قبل:'));
  const route=ctx.FalconTcpCrypto.routePrompt;
  assert(route(textarea.value));assert(route('nc xebec.cylabacademy.net 44376'));assert(route('N: 123456\ne: 65537\ncyphertext: 654'));
  assert(!route('hello world'));assert(!route('nc host 99999'));assert(!route('## Undo\nnc host 1234'));

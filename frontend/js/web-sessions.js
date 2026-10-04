@@ -535,7 +535,7 @@
     var card=el('div','fws-card');card.appendChild(el('div','fws-h','🔐 محلل Cryptography'));
     card.appendChild(el('p',null,'يفحص صقر ملفات التحدي الموجودة في C:\\\\Falcon\\\\analysis ويختار مسارًا مطابقًا لاسم التحدي. يقرأ الملفات كبيانات ولا يشغّل سكربتات التحدي.'));
     var button=el('button','fws-btn','▶ حلّل ملفات التحدي محليًا');
-    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.37.0 أو أحدث.');
+    var status=el('div','fws-note','يتطلب Falcon Local Engine 2.60.0 أو أحدث لدعم طبقات interencdec.');
     card.appendChild(button);card.appendChild(status);out.appendChild(card);
     button.onclick=async function(){
       button.disabled=true;status.textContent='يفحص صقر الملفات المحلية ومسار التحدي…';
@@ -551,6 +551,8 @@
         if(data.missing_files&&data.missing_files.length)out.appendChild(el('p','fws-note','الملفات الناقصة: '+data.missing_files.join(', ')+' — احفظها في C:\\\\Falcon\\\\analysis ثم أعد التحليل.'));
         (data.explanation_ar||[]).forEach(function(t){out.appendChild(el('p','fws-muted',t));});
         (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
+        if(global.FalconTcpCrypto){var explanation=global.FalconTcpCrypto.solutionSteps(data);if(explanation){var teaching=el('div','fws-card');teaching.innerHTML=explanation;out.appendChild(teaching);}}
+        var technical=el('details','fws-card');technical.appendChild(el('summary',null,'🔧 التفاصيل التقنية'));technical.appendChild(el('pre',null,JSON.stringify(data,null,2)));out.appendChild(technical);
         if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};row.appendChild(copy);box.appendChild(row);out.appendChild(box);}
       }catch(e){status.textContent='تعذر التحليل: '+e.message;button.disabled=false;}
     };
@@ -667,6 +669,8 @@
         status.textContent=data.flag?'✅ استخرج صقر العلم من '+data.target+'.':(data.error||'اكتمل الفحص دون ظهور العلم.');
         (data.steps||[]).forEach(function(step){var row=el('p','fws-muted');row.textContent=step.method+' '+step.path+' — HTTP '+step.status;out.appendChild(row);});
         (data.explanation_ar||[]).forEach(function(line){out.appendChild(el('p','fws-muted',line));});
+        if(global.FalconTcpCrypto){var explanation=global.FalconTcpCrypto.solutionSteps(data);if(explanation){var teaching=el('div','fws-card');teaching.innerHTML=explanation;out.appendChild(teaching);}}
+        var technical=el('details','fws-card');technical.appendChild(el('summary',null,'🔧 التفاصيل التقنية'));technical.appendChild(el('pre',null,JSON.stringify(data,null,2)));out.appendChild(technical);
         if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var r=el('div','fws-row');r.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};r.appendChild(copy);box.appendChild(r);out.appendChild(box);}
         (data.warnings||[]).forEach(function(w){out.appendChild(el('p','fws-note',w));});
       }catch(e){status.textContent='تعذر الحل: '+e.message;button.disabled=false;}
@@ -706,6 +710,8 @@
         (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
         if(data.discovered){var d=el('div','fws-card');d.appendChild(el('div','fws-h','🔎 ما اكتشفه صقر'));d.appendChild(el('p',null,'SQLite · UNION SQLi · '+data.discovered.columns+' أعمدة · MD5 · المستخدم المستهدف '+data.discovered.account));out.appendChild(d);}
         if(data.steps&&data.steps.length){var log=el('details','fws-card');log.appendChild(el('summary',null,'عرض خطوات التحليل'));data.steps.forEach(function(s,i){log.appendChild(el('p','fws-muted',(i+1)+'. '+s.method+' '+s.path+' — HTTP '+s.status+' — '+s.detail));});out.appendChild(log);}
+        if(global.FalconTcpCrypto){var explanation=global.FalconTcpCrypto.solutionSteps(data);if(explanation){var teaching=el('div','fws-card');teaching.innerHTML=explanation;out.appendChild(teaching);}}
+        var technical=el('details','fws-card');technical.appendChild(el('summary',null,'🔧 التفاصيل التقنية'));technical.appendChild(el('pre',null,JSON.stringify(data,null,2)));out.appendChild(technical);
         if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};row.appendChild(copy);box.appendChild(row);box.appendChild(el('div','fws-muted','انسخ العلم بنفسك إلى منصة المسابقة.'));out.appendChild(box);}
       }catch(e){status.textContent='تعذر الحل: '+e.message;button.disabled=false;}
     };
@@ -748,6 +754,8 @@
         if(data.files_saved_to)out.appendChild(el('p','fws-muted','حُفظ app.py وcreds-dump.txt في: '+data.files_saved_to));
         (data.explanation_ar||[]).forEach(function(t){out.appendChild(el('p','fws-muted',t));});
         (data.warnings||[]).forEach(function(t){out.appendChild(el('p','fws-note',t));});
+        if(global.FalconTcpCrypto){var explanation=global.FalconTcpCrypto.solutionSteps(data);if(explanation){var teaching=el('div','fws-card');teaching.innerHTML=explanation;out.appendChild(teaching);}}
+        var technical=el('details','fws-card');technical.appendChild(el('summary',null,'🔧 التفاصيل التقنية'));technical.appendChild(el('pre',null,JSON.stringify(data,null,2)));out.appendChild(technical);
         if(data.flag){var box=el('div','fws-flag');box.appendChild(el('strong',null,'🚩 العلم المستخرج:'));var row=el('div','fws-row');row.appendChild(el('code',null,data.flag));var copy=el('button','fws-copy','نسخ');copy.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(data.flag);copy.textContent='تم النسخ ✓';};row.appendChild(copy);box.appendChild(row);out.appendChild(box);}
       }catch(e){status.textContent='تعذر الحل: '+e.message;button.disabled=false;}
     };
@@ -879,3 +887,4 @@
     e.preventDefault();e.stopImmediatePropagation();global.FalconWebSessionRun();
   },true);
 })(window);
+

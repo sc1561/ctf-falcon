@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.56.1"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.60.0-Student"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -48,9 +48,9 @@ def status():
       "steghide":bool(find_steghide()),"steghide_path":find_steghide(),
       "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
       "timeline_python":True,"no_fa_analysis":True,"pcap_dns":True,
+      "rsa_tcp_weak_factors":True,"hashcrack_tcp":True,
       "encrypted_zip_detection":True,"zipcrypto_wordlist_recovery":True,
       "zip_evidence_password_recovery":True,
-      "stegorsa_metadata_rsa":True,
       "winzip_aes_wordlist_recovery":importlib.util.find_spec("pyzipper") is not None,
       "wireshark":bool(wireshark),"wireshark_path":wireshark,
       "tshark":bool(tshark),"tshark_path":tshark,
@@ -269,6 +269,7 @@ class H(BaseHTTPRequestHandler):
                     return reply(self,400,{"ok":False,"error":"اختر من 1 إلى 12 ملفًا للتحليل."})
                 work=Path(tempfile.mkdtemp(prefix="falcon_multi_",dir=str(TEMP_ROOT)))
                 total=0
+                uploaded=[]
                 for item in items:
                     name=Path(str(item.get("name","upload.bin"))).name[:180]
                     raw=base64.b64decode(str(item.get("data_b64","")),validate=True)
@@ -276,10 +277,11 @@ class H(BaseHTTPRequestHandler):
                     if not raw or len(raw)>16*1024*1024 or total>32*1024*1024:
                         raise ValueError("تجاوزت الملفات حدود التحليل المحلي الآمن.")
                     (work/name).write_bytes(raw)
+                    uploaded.append(name)
                 import crypto_analysis
                 result=crypto_analysis.analyze(str(data.get("challenge_text",""))[:22000],work)
                 result["engine_version"]=VERSION
-                result["uploaded_files"]=[Path(str(x.get("name",""))).name for x in items]
+                result["uploaded_files"]=uploaded
                 return reply(self,200,result)
             except Exception as e:
                 return reply(self,422,{"ok":False,"error":"تعذر التحليل متعدد الملفات","detail":str(e)[:300]})
