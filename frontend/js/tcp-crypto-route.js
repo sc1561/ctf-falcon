@@ -37,6 +37,15 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='pepper-linear-aes'){
+  steps.filter(function(s){return s.phase==='pepper-linear';}).forEach(function(s){
+   add('الخطوة 1 — تحديد الضعف','تحقق صقر من بنية المصدر: sub_bytes وsub_word وrcon تعيد المدخل دون تغيير. غياب S-box يزيل التحويل غير الخطي. تبقى ShiftRows وMixColumns وXOR عمليات خطية بالنسبة للرسالة.');
+   add('الخطوة 2 — النص المعروف','قرأ pt1 والنص المشفر الأول من الملفين، دون تشغيل السكربت. يراعي تكرار الإدخال الأقصر كما تفعل pwn.xor.<br>pt1 (Hex): '+code(s.known_plaintext_hex)+'<br>الكتلة الفعلية: '+code(s.expanded_plaintext_hex)+'<br>النص المشفر المعروف: '+code(s.known_ciphertext_hex));
+   add('الخطوة 3 — إلغاء أثر المفتاح','يمكن كتابة التشفير C = L(P) XOR K_eff. طبق صقر تسع دورات ShiftRows ثم MixColumns، ودورة ShiftRows أخيرة، على النص المعروف. حسب K_eff = C_known XOR L(P_known). هذا قناع مكافئ لأثر مفاتيح الجولات، وليس المفتاح الأصلي.<br>L(P_known): '+code(s.linear_known_hex)+'<br>K_eff: '+code(s.effective_mask_hex));
+   add('الخطوة 4 — استعادة العلم','حسب L(P_flag) = C_flag XOR K_eff، ثم عكس ShiftRows الأخيرة، وبعدها عكس MixColumns وShiftRows تسع مرات. استخدم الحساب في GF(2⁸) مع كثير الحدود 0x11b.<br>الناتج: '+code(s.plaintext));
+   add('الخطوة 5 — التحقق',s.reencryption_verified?'أعاد L(P) XOR K_eff للكتلتين؛ طابق النصين المشفرين الأصليين.':'لم يثبت تطابق التحقق.');
+  });
+  if(!data.success)add('موضع التوقف',esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='cluster-rsa'){
   steps.filter(function(s){return s.phase==='cluster-decrypt';}).forEach(function(s){
    add('الخطوة 1 — قراءة RSA','قرأ صقر n وe وct من ملف التحدي. الأس العام e = '+code(s.e)+'. لا تفترض هذه العينة أن n حاصل ضرب عاملين فقط.');
