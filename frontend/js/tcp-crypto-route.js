@@ -37,6 +37,17 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='franklin-reiter'){
+  steps.filter(function(s){return s.phase==='fr-input';}).forEach(function(s){
+   add('الخطوة 1 — قراءة علاقة الرسالتين','قرأ صقر الأس '+code(s.e)+' والمعامل N والنصين المشفرين. الفرق Message − Message_fixed = '+code(s.delta)+'. قرأ المصدر دون تشغيله.');
+   add('الخطوة 2 — بناء كثيرتي الحدود','إذا كان x هو Message_fixed، فالرسالة الأولى x + Δ. يبني صقر f(x) = (x + Δ)^e − c1 وg(x) = x^e − c2، بترديد N. الرسالتان تشتركان في جذر بسبب علاقتهما المعروفة.');
+  });
+  steps.filter(function(s){return s.phase==='fr-decrypt';}).forEach(function(s){
+   add('الخطوة 3 — هجوم Franklin–Reiter','حسب صقر القاسم المشترك لكثيرتي الحدود بخوارزمية إقليدس بترديد N. درجات المقسوم عليه أثناء الحساب: '+code((s.degrees||[]).join(' → '))+'. انتهى بقاسم خطي، واستعاد جذره بوصفه الرسالة المصححة.');
+   add('الخطوة 4 — استعادة النصين','الرسالة الأولى: '+code(s.original)+'<br>الرسالة المصححة: '+code(s.fixed)+'<br>اختار صقر العلم من Message_fixed كما يحدد المصدر.');
+   add('الخطوة 5 — التحقق',s.reencryption_verified?'أعاد حساب Message^e mod N وMessage_fixed^e mod N؛ تطابقا مع c1 وc2 الأصليين.':'لم يثبت تطابق إعادة التشفير.');
+  });
+  if(!data.success)add('موضع التوقف',esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='lfsr-8bit'){
   steps.filter(function(s){return s.phase==='lfsr-input';}).forEach(function(s){
    add('الخطوة 1 — قراءة المصدر والرسالة','قرأ صقر chall.py كبيانات، وحوّل output.txt من Hex إلى '+code(s.bytes)+' بايت. لم يشغّل كود التحدي.');
