@@ -37,6 +37,18 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='ntru-lattice'){
+  steps.filter(function(s){return s.phase==='ntru-input';}).forEach(function(s){
+   add('الخطوة 1 — قراءة معاملات NTRU','قرأ صقر N = '+code(s.N)+'، p = '+code(s.p)+'، q = '+code(s.q)+' والمفتاح العام h و'+code(s.blocks)+' كتل مشفرة، دون تشغيل السكربت.');
+   add('الخطوة 2 — بناء الشبكة','المصدر يحقق f × h ≡ p × g (mod q). يحسب صقر h′ = p⁻¹ × h، ويبني شبكة دورانية من '+code(s.dimension)+' بُعدًا تضم الأزواج (f, g) التي تحقق f × h′ ≡ g (mod q).');
+   add('الخطوة 3 — اختزال LLL','يختزل أساس الشبكة بخوارزمية LLL، ويبحث في المتجهات القصيرة عن معاملات ثلاثية −1 أو 0 أو 1. صغر أبعاد هذا التحدي يسمح باستعادة مفتاح صالح مكافئ، وقد يكون تدويرًا أو تغيير إشارة للمفتاح الأصلي.');
+  });
+  steps.filter(function(s){return s.phase==='ntru-decrypt';}).forEach(function(s){
+   add('الخطوة 4 — التحقق من المفتاح','تحقق صقر من f × h ≡ p × g (mod q)، ومن قابلية عكس f بترديد p وq.<br>f = '+code(JSON.stringify(s.f))+'<br>g = '+code(JSON.stringify(s.g))+'<br>مربع طول المتجه: '+code(s.norm_squared));
+   add('الخطوة 5 — فك كتل الرسالة','حسب f × ct بترديد q، وحوّل المعاملات إلى المجال المتمركز، ثم ضربها في f⁻¹ بترديد p. تحقق أن معاملات الرسالة بتات 0 أو 1، وجمعها في بايتات، وأزال حشو الأصفار النهائي.<br>الناتج: '+code(s.plaintext));
+   add('الخطوة 6 — إعادة التشفير',s.reencryption_verified?'استعاد معاملات r الثلاثية لكل كتلة، وأعاد p × h × r + m بترديد q؛ طابقت النتائج جميع الكتل الأصلية.':'لم يثبت تطابق إعادة التشفير.');
+  });
+  if(!data.success)add('موضع التوقف',esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='franklin-reiter'){
   steps.filter(function(s){return s.phase==='fr-input';}).forEach(function(s){
    add('الخطوة 1 — قراءة علاقة الرسالتين','قرأ صقر الأس '+code(s.e)+' والمعامل N والنصين المشفرين. الفرق Message − Message_fixed = '+code(s.delta)+'. قرأ المصدر دون تشغيله.');
