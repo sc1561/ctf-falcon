@@ -37,6 +37,17 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='cryptomaze-lfsr-aes'||data.challenge==='cryptomaze'){
+  steps.filter(function(s){return s.phase==='cryptomaze-key';}).forEach(function(s){
+   add('الخطوة 1 — قراءة الحالة ومواضع taps','الحالة الابتدائية: '+code(JSON.stringify(s.initial_state))+'<br>مواضع taps، بفهرسة تبدأ من صفر: '+code(JSON.stringify(s.taps)));
+   add('الخطوة 2 — توليد 128 بت','في كل دورة أخذ صقر state[0] كبت خرج، ثم حسب XOR لبتات taps قبل الإزاحة، وحذف أول بت وأضاف feedback في النهاية. كرر ذلك 128 مرة.<br>البتات: '+code(s.bits));
+   add('الخطوة 3 — تحويل البتات إلى مفتاح AES','جمع البتات في 16 مجموعة، كل مجموعة 8 بتات، وحوّلها إلى بايت مع قراءة البت الأعلى أولًا.<br>المجموعات: '+code((s.chunks||[]).join(' '))+'<br>المفتاح بصيغة Hex: '+code(s.key_hex));
+   add('الخطوة 4 — فك AES-128 ECB','حوّل النص المشفر من Hex إلى بايتات، ثم فك AES في وضع ECB بالمفتاح المشتق، دون IV.<br>النص المشفر: '+code(s.ciphertext_hex));
+  });
+  steps.filter(function(s){return s.phase==='cryptomaze-decrypt';}).forEach(function(s){
+   add('الخطوة 5 — إزالة الحشو والتحقق','تحقق من حشو PKCS#7 وأزاله، ثم أعاد تشفير الناتج؛ طابق النص المشفر الأصلي.<br>الرسالة: '+code(s.plaintext));
+  });
+  if(!data.success)add('موضع التوقف',esc((data.explanation_ar||data.warnings||[]).join(' ')));
  }else if(data.analyzer==='ntru-lattice'){
   steps.filter(function(s){return s.phase==='ntru-input';}).forEach(function(s){
    add('الخطوة 1 — قراءة معاملات NTRU','قرأ صقر N = '+code(s.N)+'، p = '+code(s.p)+'، q = '+code(s.q)+' والمفتاح العام h و'+code(s.blocks)+' كتل مشفرة، دون تشغيل السكربت.');
