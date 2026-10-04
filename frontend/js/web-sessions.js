@@ -833,7 +833,7 @@
     var imageInput=document.getElementById('file');
     var imageFiles=imageInput&&imageInput.files&&imageInput.files.length?Array.prototype.slice.call(imageInput.files):(global.__falconDroppedFiles||[]);
     if(!imageFiles.length&&global.__falconDroppedFile)imageFiles=[global.__falconDroppedFile];
-    if(global.FalconTcpCrypto&&imageFiles.length&&(imageFiles.some(function(f){return /^(?:the_numbers\.png|message(?:\s*\(\d+\))?\.txt)$/i.test(f.name);})|| (imageFiles.some(function(f){return /\.py$/i.test(f.name);})&&imageFiles.some(function(f){return /\.txt$/i.test(f.name);}))||/(?:^|\n)\s*(?:#{1,6}\s*)?The Numbers(?=\s|$)/i.test(tcpText)))
+    if(global.FalconTcpCrypto&&imageFiles.length&&(imageFiles.some(function(f){return /^(?:the_numbers\.png|cheese_list(?:\s*\(\d+\))?\.txt|message(?:\s*\(\d+\))?\.txt)$/i.test(f.name);})|| (imageFiles.some(function(f){return /\.py$/i.test(f.name);})&&imageFiles.some(function(f){return /\.txt$/i.test(f.name);}))||/(?:^|\n)\s*(?:#{1,6}\s*)?The Numbers(?=\s|$)/i.test(tcpText)))
       return global.FalconTcpCrypto.run(tcpText,imageFiles);
 
     if(global.FalconTcpCrypto && global.FalconTcpCrypto.routePrompt(tcpText))
