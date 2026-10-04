@@ -38,6 +38,15 @@ function solutionSteps(data){
    add('التحقق بإعادة التشفير',s.reencryption_verified===true?'أعاد صقر الحساب c′ = m^e mod N. تطابقت النتيجة مع c الأصلي، فثبت أن الرسالة المفكوكة تطابق النص المشفّر.':'لم يؤكد المحلل تطابق إعادة التشفير؛ لا يُعتمد هذا المرشح بوصفه حلًا متحققًا.');
   });
   if(!evidence.length)add('موضع التوقف','لا توجد خطوة فك RSA ناجحة مسجلة في هذه النتيجة. '+esc((data.warnings||[]).join(' '))+' لا يعرض صقر عوامل أو مفتاحًا خاصًا لم يستعدهما.');
+ }else if(data.analyzer==='custom-reverse-xor'){
+  steps.filter(function(s){return s.phase==='custom-decrypt';}).forEach(function(s){
+   add('الخطوة 1 — قراءة التحويلات','قرأ المصدر دون تشغيله: p='+code(s.p)+'، g='+code(s.g)+'، a='+code(s.a)+'، b='+code(s.b)+'.');
+   add('الخطوة 2 — استعادة المفتاح','حسب u=g^a mod p='+code(s.u)+'، v=g^b mod p='+code(s.v)+'، ثم key=v^a mod p='+code(s.shared_key)+'. طابق u^b mod p.');
+   add('الخطوة 3 — عكس الضرب','قسم كل عدد مشفر قسمة دقيقة على key×311='+code(s.factor)+'. البايتات المستعادة: '+code(s.semi_cipher_hex));
+   add('الخطوة 4 — عكس XOR وترتيب النص','طبّق XOR مع المفتاح النصي المتكرر '+code(s.text_key)+'، ثم عكس ترتيب الحروف لأن المصدر يستخدم plaintext[::-1]. الناتج: '+code(s.plaintext));
+   add('الخطوة 5 — التحقق',s.reencryption_verified?'أعاد التشفير بجميع مراحله، وطابقت قائمة الأعداد الناتجة القائمة الأصلية كاملة.':'لم يثبت تطابق إعادة التشفير.');
+  });
+  if(!data.success)add('موضع التوقف',esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='cheese-affine'){
   steps.filter(function(s){return s.phase==='cheese-affine';}).forEach(function(s){
    add('الخطوة 1 — استعلام نص معروف','أرسل اسم الجبن المعروف Cheddar إلى خيار encrypt في الجلسة نفسها. النص: '+code(s.known_plaintext)+'؛ الناتج: '+code(s.oracle_ciphertext));
