@@ -457,6 +457,15 @@ def analyze(challenge_text: str, analysis_dir: Path | str) -> dict:
         return rsa_tcp.analyze_text(hash_text)
     if _slug(challenge_text) in (None, "hashcrack") and hashcrack_tcp.hashes(hash_text):
         return hashcrack_tcp.analyze(hash_text, root)
+    import numbers_ocr
+    named_numbers=_slug(challenge_text)=="the numbers"
+    number_image=present.get("the_numbers.png")
+    if number_image and _slug(challenge_text) in (None,"the numbers"):
+        return numbers_ocr.analyze_image(number_image)
+    if not _slug(challenge_text):
+        for image_path in [p for p in present.values() if p.suffix.lower()==".png"][:3]:
+            numeric_result=numbers_ocr.analyze_image(image_path)
+            if numeric_result["success"]:return numeric_result
     slug = _slug(challenge_text)
     auto_note=None
     if not slug:

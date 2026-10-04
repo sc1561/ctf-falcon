@@ -31,6 +31,15 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='numbers-ocr'){
+  steps.filter(function(s){return s.phase==='image-ocr';}).forEach(function(s){
+   add('قراءة الأرقام من الصورة','عزل صقر الرموز الداكنة عن الخلفية، وقارن أشكالها بقوالب أرقام وأقواس محلية. القارئ مخصص للأرقام المنفصلة الواضحة، وليس OCR عامًا لكل الصور.<br>القراءة: '+code(s.output));
+  });
+  steps.filter(function(s){return s.phase==='a1z26';}).forEach(function(s){
+   add('تحويل الأعداد إلى حروف — A1Z26','كل عدد من 1 إلى 26 يحدد موضع الحرف: 1=A، 2=B، …، 26=Z. أبقى صقر الأقواس واستخدم الحروف الكبيرة.<br>'+code((s.mapping||[]).map(function(m){return m.number+'='+m.letter;}).join(' · ')));
+   if(s.output)add('تجميع الحروف','قرأ الحروف بترتيب الأسطر من اليسار إلى اليمين: '+code(s.output));
+  });
+  if(!steps.length)add('موضع التوقف',esc((data.warnings||[]).join(' '))+' لم يستبدل صقر الرموز غير الواضحة بتخمين.');
  }else if(steps.some(function(s){return s.phase==='text-decode';})){
   steps.filter(function(s){return s.phase==='text-decode';}).forEach(function(s,i){
    var why=s.operation==='Base64'||s.operation==='Base64url'?'فك صقر ترميز Base64 لاستعادة الطبقة التالية.':s.operation==='Python bytes literal'?'قرأ صقر القيمة داخل غلاف البايتات b&#39;…&#39; كبيانات، دون تشغيل كود.':/^Caesar shift /.test(s.operation)?'أعاد صقر كل حرف '+esc(s.operation.split(' ').pop())+' مواضع إلى الخلف، وأبقى الأرقام والرموز.':'طبّق صقر التحويل المسجل: '+code(s.operation);
@@ -41,7 +50,7 @@ function solutionSteps(data){
  return '<details class="tech" style="margin-top:16px"><summary style="cursor:pointer;font-weight:bold;padding:12px">📚 كيف حلّ صقر التحدي؟</summary><div class="techBody"><p>الشرح التالي مبني على الأدلة المسجلة في هذه المحاولة.</p><ol>'+items.join('')+'</ol></div></details>';
 }
 
-async function run(text){
+async function run(text,files){
  if(busy)return false;
  busy=true;
  var out=document.getElementById('result'),button=document.getElementById('solve');
@@ -49,14 +58,25 @@ async function run(text){
  var previous=button&&button.disabled;
  if(button)button.disabled=true;
  out.classList.remove('hidden');
- out.innerHTML='<h2>🔐 تحليل خدمة TCP أو قيم RSA</h2><p>⏳ جارٍ قراءة القيم واختيار المحلل المناسب…</p>';
+ out.innerHTML='<h2>🔐 تحليل التشفير بالمحرك المحلي</h2><p>⏳ جارٍ قراءة القيم واختيار المحلل المناسب…</p>';
  var controller=typeof AbortController==='function'?new AbortController():null;
  var timer=controller?setTimeout(function(){controller.abort();},40000):null;
  try{
   var base=(location.port==='8765'&&(location.hostname==='127.0.0.1'||location.hostname==='localhost'))?location.origin:'http://127.0.0.1:8765';
   var health=await fetch(base+'/health',{cache:'no-store',signal:controller?controller.signal:undefined}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
   if(!health.rsa_tcp_weak_factors||!health.hashcrack_tcp)throw new Error('يلزم تشغيل محرك صقر 2.59.1 أو أحدث.');
-  var response=await fetch(base+'/crypto/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,challenge_text:text}),cache:'no-store',signal:controller?controller.signal:undefined});
+  var payload={confirm:true,challenge_text:text},endpoint='/crypto/analyze';
+  if(files&&files.length){
+   if(!health.numeral_image_ocr)throw new Error('يلزم محرك 2.61.0 مع Pillow لقراءة أرقام الصورة.');
+   payload.files=[];endpoint='/crypto/analyze-files';
+   for(var f of files){
+    if(f.size>8*1024*1024)throw new Error('الصورة أكبر من 8 ميغابايت.');
+    var bytes=new Uint8Array(await f.arrayBuffer()),parts=[];
+    for(var offset=0;offset<bytes.length;offset+=8192)parts.push(String.fromCharCode.apply(null,bytes.subarray(offset,offset+8192)));
+    payload.files.push({name:f.name,data_b64:btoa(parts.join(''))});
+   }
+  }
+  var response=await fetch(base+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store',signal:controller?controller.signal:undefined});
   var data=await response.json();
   if(!response.ok)throw new Error(data.error||data.detail||('HTTP '+response.status));
   var solved=data.success===true&&typeof data.flag==='string'&&data.flag.length>0;

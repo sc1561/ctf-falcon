@@ -1,10 +1,10 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const root=require('path').resolve(__dirname,'..');
-let calls=[],generic=0;
+let calls=[],generic=0;const fileInput={files:[]};
 const output={innerHTML:'',classList:{remove(){},add(){}},scrollIntoView(){}};
 const solve={disabled:false,addEventListener(){}};
 const textarea={value:'## EVEN RSA CAN BE BROKEN???\nCryptographyEasy\nnc xebec.cylabacademy.net 44376'};
-const ctx={console,setTimeout,clearTimeout,AbortController,URL,location:{port:'8765',hostname:'127.0.0.1',origin:'http://127.0.0.1:8765'},document:{getElementById(id){return {result:output,solve,text:textarea}[id]||null;},querySelector(){return null;}},navigator:{},fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.endsWith('/health')?{version:'2.59.1-Student',rsa_tcp_weak_factors:true,hashcrack_tcp:true}:{ok:true,success:true,flag:'academy{ui_test_only}',analyzer:'rsa-tcp',engine_version:'2.59.1-Student'}};}};
+const ctx={btoa,console,setTimeout,clearTimeout,AbortController,URL,location:{port:'8765',hostname:'127.0.0.1',origin:'http://127.0.0.1:8765'},document:{getElementById(id){return {result:output,solve,text:textarea,file:fileInput}[id]||null;},querySelector(){return null;}},navigator:{},fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.endsWith('/health')?{version:'2.59.1-Student',rsa_tcp_weak_factors:true,hashcrack_tcp:true,numeral_image_ocr:true}:{ok:true,success:true,flag:'academy{ui_test_only}',analyzer:'rsa-tcp',engine_version:'2.59.1-Student'}};}};
 ctx.window=ctx;ctx.FalconSmartRun=()=>{generic++;};
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(root+'/frontend/js/web-sessions.js','utf8'),ctx);
@@ -21,6 +21,7 @@ vm.runInContext(fs.readFileSync(root+'/frontend/js/tcp-crypto-route.js','utf8'),
  assert(hash.includes('32'));assert(hash.includes('md5'));assert(hash.includes('الإرسال وحده لا يثبت'));
  const escaped=explain({analyzer:'rsa-tcp',steps:[],warnings:['<img onerror=alert(1)>']});assert(!escaped.includes('<img'));assert(escaped.includes('&lt;img'));
  const decoded=explain({analyzer:'cryptography',success:true,flag:'academy{test}',steps:[{phase:'text-decode',operation:'Python bytes literal',input:'b\'abc\'',output:'abc'},{phase:'text-decode',operation:'Caesar shift 7',input:'hjh',output:'aca'}]});assert(decoded.includes('الخطوة 1'));assert(decoded.includes('7'));assert(decoded.includes('قبل:'));
+ const numeric=explain({analyzer:'numbers-ocr',success:true,flag:'PICOCTF{TEST}',steps:[{phase:'image-ocr',output:'20 5 19 20'},{phase:'a1z26',mapping:[{number:20,letter:'T'},{number:5,letter:'E'}],output:'PICOCTF{TEST}'}]});assert(numeric.includes('20=T'));assert(numeric.includes('A1Z26'));assert(numeric.includes('قراءة الأرقام'));
  const route=ctx.FalconTcpCrypto.routePrompt;
  assert(route(textarea.value));assert(route('nc xebec.cylabacademy.net 44376'));assert(route('N: 123456\ne: 65537\ncyphertext: 654'));
  assert(!route('hello world'));assert(!route('nc host 99999'));assert(!route('## Undo\nnc host 1234'));
@@ -28,6 +29,7 @@ vm.runInContext(fs.readFileSync(root+'/frontend/js/tcp-crypto-route.js','utf8'),
  assert.equal(generic,0);assert.equal(calls.length,2);
  assert(calls[1].url.endsWith('/crypto/analyze'));assert.equal(JSON.parse(calls[1].options.body).challenge_text,textarea.value);
  assert(output.innerHTML.includes('academy{ui_test_only}'));assert(output.innerHTML.includes('rsa-tcp'));assert(output.innerHTML.includes('كيف حلّ صقر التحدي')); assert.equal(solve.disabled,false);
+ fileInput.files=[{name:'the_numbers.png',size:3,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer}];textarea.value='';await ctx.FalconWebSessionRun();assert(calls[calls.length-1].url.endsWith('/crypto/analyze-files'));assert.equal(JSON.parse(calls[calls.length-1].options.body).files[0].data_b64,'AQID');assert.equal(generic,0);fileInput.files=[];textarea.value='nc host 1234';
  ctx.fetch=async()=>{throw new Error('test network failure');};
  await ctx.FalconWebSessionRun();assert.equal(generic,0);assert(output.innerHTML.includes('test network failure'));
  console.log('PASS: actual WebSession dispatch -> TCP route -> HTTP request -> rendered flag; failure avoids ROT13');

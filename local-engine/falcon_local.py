@@ -10,7 +10,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST="127.0.0.1"; PORT=8765; VERSION="2.60.0-Student"
+HOST="127.0.0.1"; PORT=8765; VERSION="2.61.0-Student"
 FALCON_HOME=Path(r"C:\\Falcon")
 TEMP_ROOT=FALCON_HOME/"temp"
 TEMP_ROOT.mkdir(parents=True,exist_ok=True)
@@ -48,7 +48,7 @@ def status():
       "steghide":bool(find_steghide()),"steghide_path":find_steghide(),
       "sleuthkit":bool(fls),"fls_path":fls,"icat":bool(icat),"icat_path":icat,
       "timeline_python":True,"no_fa_analysis":True,"pcap_dns":True,
-      "rsa_tcp_weak_factors":True,"hashcrack_tcp":True,
+      "rsa_tcp_weak_factors":True,"hashcrack_tcp":True,"numeral_image_ocr":importlib.util.find_spec("PIL") is not None,
       "encrypted_zip_detection":True,"zipcrypto_wordlist_recovery":True,
       "zip_evidence_password_recovery":True,
       "winzip_aes_wordlist_recovery":importlib.util.find_spec("pyzipper") is not None,
