@@ -37,6 +37,17 @@ function solutionSteps(data){
    if(s.sent===true)add('إرسال الإجابة ومتابعة الخدمة','أرسل صقر الكلمة المطابقة إلى الخدمة وانتظر الرد. الإرسال وحده لا يثبت قبول الإجابة؛ ظهور العلم في رد الخدمة هو دليل نجاح الجلسة.');
   });
   if(!steps.length)add('موضع التوقف','لم تُسجَّل محاولة استعادة تجزئة. '+esc((data.warnings||[]).join(' ')));
+ }else if(data.analyzer==='lfsr-8bit'){
+  steps.filter(function(s){return s.phase==='lfsr-input';}).forEach(function(s){
+   add('الخطوة 1 — قراءة المصدر والرسالة','قرأ صقر chall.py كبيانات، وحوّل output.txt من Hex إلى '+code(s.bytes)+' بايت. لم يشغّل كود التحدي.');
+   add('الخطوة 2 — تحديد ضعف المفتاح','رغم توليد مفتاح من 126 بايت، يستخدم البرنامج '+code('key & 0xFF')+' فقط؛ أي 8 بت و256 حالة ممكنة.');
+   add('الخطوة 3 — إعادة بناء LFSR','مواضع التغذية الراجعة: '+code((s.taps||[]).join(', '))+'. في كل بايت: feedback = b7 XOR b5 XOR b4 XOR b3، ثم state = (feedback << 7) | (state >> 1). يُحدّث السجل قبل XOR مع بايت الرسالة.');
+  });
+  steps.filter(function(s){return s.phase==='lfsr-decrypt';}).forEach(function(s){
+   add('الخطوة 4 — اختبار الحالات وفك XOR','اختبر صقر '+code(s.attempts)+' حالة. الحالات التي أعطت الرسالة نفسها: '+code((s.seeds||[]).join(', '))+'. أول إزاحة تسقط البت الأقل أهمية، لذلك قد تتطابق حالتان.<br>الناتج: '+code(s.plaintext));
+   add('الخطوة 5 — التحقق بإعادة التشفير',s.reencryption_verified?'أعاد صقر تشفير الرسالة بنفس السجل، وطابق الناتج مع output.txt بايتًا ببايت.':'لم يثبت تطابق إعادة التشفير.');
+  });
+  if(!data.success)add('موضع التوقف',esc((data.warnings||[]).join(' ')));
  }else if(data.analyzer==='numbers-ocr'){
   steps.filter(function(s){return s.phase==='image-ocr';}).forEach(function(s){
    add('قراءة الأرقام من الصورة','عزل صقر الرموز الداكنة عن الخلفية، وقارن أشكالها بقوالب أرقام وأقواس محلية. القارئ مخصص للأرقام المنفصلة الواضحة، وليس OCR عامًا لكل الصور.<br>القراءة: '+code(s.output));
